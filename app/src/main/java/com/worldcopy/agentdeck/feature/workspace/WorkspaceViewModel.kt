@@ -58,7 +58,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private var workJob: Job? = null
     private var reopen: (suspend () -> HostApi)? = null
     private var hostId = ""
-    val hostName get() = (getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication).hosts.firstOrNull { it.id == hostId }?.name ?: "电脑"
+    val hostName get() = (getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication).hosts.hosts.firstOrNull { it.id == hostId }?.name ?: "电脑"
     private var requestId: String? = null
     private var pendingText: String? = null
     private var cursor = 0L
