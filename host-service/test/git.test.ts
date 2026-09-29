@@ -10,7 +10,7 @@ async function repository(t: any) {
   const dir = await mkdtemp(join(tmpdir(), 'agentdeck-git-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
-  git('init', '-b', 'main'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
+  git('init'); git('symbolic-ref', 'HEAD', 'refs/heads/main'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
   return { dir, git };
 }
 
@@ -61,4 +61,17 @@ test('graph retains both merge parents and fixed pagination roots', async t => {
   const all = [...page.commits, ...second.commits];
   assert.equal(all.length, 54); assert.equal(new Set(all.map(c => c.oid)).size, 54);
   assert.ok(all.every(c => c.subject !== 'new after snapshot'));
+});
+
+
+test('linked worktrees retain separate Git directories and one common directory', async t => {
+  const { dir, git } = await repository(t);
+  git('commit', '--allow-empty', '-m', 'root');
+  const linked = join(dir, 'linked');
+  git('worktree', 'add', '-b', 'linked', linked);
+  const main = await status(dir), worktree = await status(linked);
+  assert.equal(main.commonDir, join(main.root, '.git'));
+  assert.equal(worktree.commonDir, main.commonDir);
+  assert.notEqual(worktree.gitDir, main.gitDir);
+  assert.equal(worktree.root, join(main.root, 'linked'));
 });

@@ -63,7 +63,7 @@ export async function status(cwd: string) {
   const unborn = headers['branch.oid'] === '(initial)';
   const counts = headers['branch.ab']?.split(' ');
   return { root, gitDir: (await git(root, ['rev-parse', '--absolute-git-dir'])).trim(),
-    commonDir: (await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim(),
+    commonDir: resolve(root, (await git(root, ['rev-parse', '--git-common-dir'])).trim()),
     branch: headers['branch.head'], head: unborn ? null : headers['branch.oid'],
     upstream: headers['branch.upstream'] ?? null, ahead: counts ? Number(counts[0].slice(1)) : null,
     behind: counts ? Number(counts[1].slice(1)) : null,

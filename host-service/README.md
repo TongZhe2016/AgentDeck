@@ -29,11 +29,28 @@ launchctl bootout "gui/$(id -u)/com.worldcopy.agentdeck"
 
 删除 LaunchAgents 中的对应 plist 可关闭后续自动启动；保留数据目录可供重新安装使用。日志为 `~/.agentdeck/service.log` 和 `service-error.log`。本次开发已验证安装器预览；未在用户登录项中自动安装。
 
+## Ubuntu 常驻运行
+
+需要 Node.js 24+、Git 2.25+、已配置认证的 Codex CLI，以及可用的 `systemctl --user`。系统 Node 较旧时，可以把 Node.js 24 官方 Linux 发行包解压到用户目录，再把其 `bin` 加到当前 `PATH`；安装器记录当前 Node 绝对路径，不改变系统 Node。该运行时目录需持续保留。
+
+从仓库根目录运行：
+
+```sh
+node scripts/install-linux-service.mjs           # 查看安装路径
+node scripts/install-linux-service.mjs --install # 构建、安装并启动
+loginctl enable-linger                          # 让服务在退出 SSH 后继续运行
+systemctl --user status agentdeck.service
+```
+
+`enable-linger` 在部分服务器需要管理员授权；没有启用时，不能保证最后一个登录会话退出后的运行。Codex 不在当前 PATH 时，用 `AGENTDECK_CODEX=/绝对路径/codex` 指定。安装器会保留当前 PATH，以便服务能找到 Node、Git 与项目工具。手机使用服务器可达的 SSH 地址和端口，无需开放服务的 4317 端口。
+
+程序安装于 `~/.local/share/agentdeck/0.1.0/`，用户 unit 为 `~/.config/systemd/user/agentdeck.service`，数据与令牌位于 `~/.agentdeck/`。日志使用 `journalctl --user -u agentdeck.service`。升级前等待任务结束，再重跑安装器；停止并取消自启使用 `systemctl --user disable --now agentdeck.service`。保留数据目录可重新安装。
+
 ## 本地语音转写
 
 `node scripts/setup-transcription.mjs` 显示安装内容；`--install` 创建独立 Python 环境，安装 faster-whisper 1.2.1 并下载多语言 base 模型。需要 Python 3.9+，可用 `AGENTDECK_PYTHON` 指定解释器。
 
-安装后重跑 macOS 服务安装器，使 launchd 带上转写环境。前台开发设置 `AGENTDECK_TRANSCRIBE_PYTHON`（虚拟环境中的 Python 绝对路径）和 `AGENTDECK_WHISPER_MODEL`（模型目录）。首轮联调的依赖和模型安装在仓库 `.local/`，没有改变系统 Python 或用户登录服务。
+安装后重跑对应系统的服务安装器，使用户服务带上转写环境。前台开发设置 `AGENTDECK_TRANSCRIBE_PYTHON`（虚拟环境中的 Python 绝对路径）和 `AGENTDECK_WHISPER_MODEL`（模型目录）。首轮联调的依赖和模型安装在仓库 `.local/`，没有改变系统 Python 或用户登录服务。
 
 手机录音经 SSH 上传，在电脑 CPU 上转写；运行时不下载模型，也不把音频交给模型 API。转写最长等待 120 秒；失败可重试，成功文字进入手机草稿。准确率取决于语言、声音和模型，发送前可以编辑。临时录音转写后删除，已发送图片保留供原生会话恢复。
 
