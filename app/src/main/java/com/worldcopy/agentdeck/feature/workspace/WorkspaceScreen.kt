@@ -1,7 +1,6 @@
 package com.worldcopy.agentdeck.feature.workspace
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -39,7 +37,7 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
             }
         }
     }
-    BackHandler { when { vm.diff != null -> vm.clearDiff(); vm.detail != null -> vm.clearDetail(); fromProjects -> { vm.clearSession(); back() }; vm.selected != null -> vm.clearSession(); else -> back() } }
+    BackHandler { when { vm.diff != null -> vm.clearDiff(); fromProjects -> { vm.clearSession(); back() }; vm.selected != null -> vm.clearSession(); else -> back() } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = { if (fromProjects) { vm.clearSession(); back() } else if (vm.selected != null) vm.clearSession() else back() }) { Text(if (fromProjects) "‹ 项目" else if (vm.selected == null) "‹ 主机" else "‹ 会话") }
@@ -52,31 +50,10 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
             }
         }
-        when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else Chat(vm); 1 -> Changes(vm); 2 -> Graph(vm) }
+        when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else Chat(vm); 1 -> Changes(vm); 2 -> Graph(vm) { tab = 0 } }
     }
     vm.error?.let { message -> AlertDialog(onDismissRequest = vm::dismissError, title = { Text("操作未完成") }, text = { SelectionContainer { Text(message) } },
         confirmButton = { TextButton(onClick = vm::dismissError) { Text("知道了") } }) }
-    vm.detail?.let { commit ->
-        val parent = commit.optInt("parentIndex")
-        AlertDialog(onDismissRequest = vm::clearDetail, title = { Text("提交 ${commit.getString("oid").take(8)}") },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                SelectionContainer { Text(commit.getString("message")) }
-                Text("${commit.string("author")} · ${commit.string("date")}")
-                val parents = commit.optJSONArray("parents")
-                if ((parents?.length() ?: 0) > 1) Row { (0 until parents!!.length()).forEach { index ->
-                    FilterChip(selected = parent == index, onClick = { vm.loadCommit(commit.getString("oid"), index) }, enabled = !vm.busy, label = { Text("父提交 ${index + 1}") })
-                } }
-                Text("变更文件（相对父提交 ${parent + 1}）")
-                val paths = commit.getJSONArray("paths")
-                (0 until paths.length()).forEach { index ->
-                    TextButton(onClick = { vm.loadDiff(paths.getString(index), "commit", commit.getString("oid"), parent) }) { Text(paths.getString(index)) }
-                }
-            } }, confirmButton = { TextButton(onClick = vm::clearDetail) { Text("关闭") } },
-            dismissButton = { TextButton(onClick = {
-                vm.updateDraft(vm.draft + "\n项目：${vm.project}\n提交：${commit.getString("oid")}\n${commit.getString("message")}")
-                vm.clearDetail(); tab = 0
-            }, enabled = vm.selected != null && !vm.hasUnconfirmedSubmission) { Text("引用到对话") } })
-    }
     vm.diff?.let { result ->
         val context = LocalContext.current
         val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -297,7 +274,13 @@ fun graphRows(commits: List<Pair<String, List<String>>>): List<GraphRow> {
 }
 
 @Composable
-private fun Graph(vm: WorkspaceViewModel) {
+private fun Graph(vm: WorkspaceViewModel, showChat: () -> Unit) {
+    var expandedOid by remember(vm.project, vm.graphScope) { mutableStateOf<String?>(null) }
+    var now by remember { mutableStateOf(java.time.Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) { kotlinx.coroutines.delay(60_000); now = java.time.Instant.now() }
+    }
+    BackHandler(enabled = expandedOid != null && vm.diff == null) { expandedOid = null; vm.clearDetail() }
     val commits = vm.commits
     val entries = remember(commits) {
         val rows = graphRows(commits.map { c -> c.getString("oid") to c.getJSONArray("parents").let { a -> (0 until a.length()).map { a.getString(it) } } })
@@ -312,26 +295,21 @@ private fun Graph(vm: WorkspaceViewModel) {
             }
         }
         items(entries, key = { it.first.getString("oid") }) { (commit, row) ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 100.dp).height(IntrinsicSize.Min).clickable(enabled = !vm.busy) { vm.loadCommit(commit.getString("oid")) }) {
-                val color = MaterialTheme.colorScheme.primary
-                Canvas(Modifier.width((maxOf(row.before.size, row.after.size, row.node + 1) * 14 + 12).dp).fillMaxHeight()) {
-                    fun x(lane: Int) = (lane * 14 + 10).dp.toPx()
-                    val center = 28.dp.toPx()
-                    row.before.forEachIndexed { lane, oid ->
-                        if (oid == row.oid) drawLine(color, Offset(x(lane), 0f), Offset(x(row.node), center), 2.dp.toPx())
-                        else drawLine(color.copy(alpha = .5f), Offset(x(lane), 0f), Offset(x(row.after.indexOf(oid)), size.height), 2.dp.toPx())
-                    }
-                    row.parents.forEach { parent -> drawLine(color, Offset(x(row.node), center), Offset(x(row.after.indexOf(parent)), size.height), 2.dp.toPx()) }
-                    drawCircle(color, 4.dp.toPx(), Offset(x(row.node), center))
-                }
-                Column(Modifier.padding(vertical = 8.dp).weight(1f)) {
-                    Text(commit.getString("subject"), maxLines = 2, style = MaterialTheme.typography.titleSmall)
-                    Text("${commit.getString("oid").take(8)} · ${commit.getString("author")}", style = MaterialTheme.typography.bodySmall)
-                    Text(commit.string("date").take(10), style = MaterialTheme.typography.bodySmall)
-                    Text(commit.string("refs"), maxLines = 1, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
-                }
-            }
+            val oid = commit.getString("oid")
+            val detail = vm.detail?.takeIf { it.string("oid") == oid }
+            CommitGraphRow(commit, row, expandedOid == oid, detail, vm.busy, now,
+                toggle = {
+                    if (expandedOid == oid) { expandedOid = null; vm.clearDetail() }
+                    else { expandedOid = oid; vm.clearDetail(); vm.loadCommit(oid) }
+                },
+                loadParent = { vm.loadCommit(oid, it) },
+                openDiff = { path, parent -> vm.loadDiff(path, "commit", oid, parent) },
+                quote = if (vm.selected != null && !vm.hasUnconfirmedSubmission && detail != null) ({
+                    vm.updateDraft(vm.draft + "\n项目：${vm.project}\n提交：$oid\n${detail.string("message")}")
+                    expandedOid = null; vm.clearDetail(); showChat()
+                }) else null)
         }
+
         if (vm.hasMoreCommits) item { TextButton(onClick = { vm.loadGraph(more = true) }, enabled = !vm.busy) { Text("加载后续父节点") } }
     }
 }

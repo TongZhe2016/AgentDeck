@@ -2,7 +2,7 @@
 
 Android 上的 SSH Agent 工作台：连接自己的电脑，操作 Codex，阅读已有会话，并查看项目的 Git Changes 与 Graph。Claude Code 和 G2 随后接入。
 
-当前已实现 Codex 首版工作台：跨主机项目首页、多主机、SSH 密码／手机生成 Ed25519 密钥登录、加密凭据、原生历史与正文搜索、新建／恢复会话、流式回复、审批／取消、断线事件恢复、后台通知、图片／分享和电脑端语音转文字。Git 支持 Changes、Diff、真实提交 DAG、分页和合并父提交选择。
+当前已实现 Codex 首版工作台：跨主机项目首页、多主机、SSH 密码／手机生成 Ed25519 密钥登录、加密凭据、原生历史与正文搜索、新建／恢复会话、流式回复、审批／取消、断线事件恢复、后台通知、图片／分享和电脑端语音转文字。Git 支持 Changes、Diff、真实提交 DAG、分页和合并父提交选择。Graph 使用紧凑单行标题与相对时间，长标题省略，点击行内展开完整说明、引用和文件变更。
 
 Android 工程位于根目录，应用模块为 `app/`，application ID 为 `com.worldcopy.agentdeck`。在 Android Studio 中打开根目录，或用 `./gradlew :app:assembleDebug` 构建。电脑服务位于 `host-service/`，仅监听回环地址，经 SSH 隧道访问。
 
