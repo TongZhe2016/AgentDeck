@@ -19,7 +19,9 @@ export class Store extends EventEmitter {
     `);
     const interrupted = this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','running','waiting_approval','waiting_input')").all() as Run[];
     for (const run of interrupted) this.updateRun(run.id, { state: 'unknown', error: '电脑服务重启，执行结果待核实；不会自动重发。' });
+    const pending = this.approvals();
     this.db.exec("UPDATE approvals SET state='expired' WHERE state='pending'");
+    for (const approval of pending) this.event('approval.resolved', { id: approval.id, runId: approval.runId });
   }
   transaction<T>(action: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
@@ -30,7 +32,7 @@ export class Store extends EventEmitter {
   markManaged(threadId: string) { this.db.prepare('INSERT OR IGNORE INTO managed VALUES (?)').run(threadId); }
   runByRequest(id: string) { return this.db.prepare('SELECT * FROM runs WHERE requestId=?').get(id) as Run | undefined; }
   run(id: string) { return this.db.prepare('SELECT * FROM runs WHERE id=?').get(id) as Run | undefined; }
-  runs() { return this.db.prepare('SELECT * FROM runs ORDER BY createdAt DESC LIMIT 100').all() as Run[]; }
+  runs() { return this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','running','waiting_approval','waiting_input','unknown') OR id IN (SELECT id FROM runs ORDER BY createdAt DESC LIMIT 100) ORDER BY createdAt DESC").all() as Run[]; }
   active(threadId: string) { return this.db.prepare("SELECT * FROM runs WHERE threadId=? AND state IN ('queued','running','waiting_approval','waiting_input','unknown') ORDER BY createdAt DESC LIMIT 1").get(threadId) as Run | undefined; }
   createRun(requestId: string, threadId: string, text: string): Run {
     const run = { id: randomUUID(), requestId, threadId, turnId: null, state: 'queued', text, error: null, createdAt: new Date().toISOString() };

@@ -6,7 +6,8 @@ import { Store } from '../storage/store.js';
 export class Attachments {
   constructor(private store: Store, private directory: string) {
     store.db.exec(`CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, threadId TEXT NOT NULL, path TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, createdAt TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS run_attachments (runId TEXT PRIMARY KEY, ids TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS run_attachments (runId TEXT PRIMARY KEY, ids TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS transcriptions (attachmentId TEXT PRIMARY KEY, text TEXT NOT NULL);`);
   }
   async upload(id: string, threadId: string, request: IncomingMessage) {
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(id) || !threadId) throw new Error('附件 ID 或会话无效');
@@ -44,8 +45,18 @@ export class Attachments {
     return ids.map(id => {
       const attachment = this.store.db.prepare('SELECT * FROM attachments WHERE id=?').get(id);
       if (!attachment || attachment.threadId !== threadId) throw new Error('附件未上传完成或属于另一会话');
-      return { type: String(attachment.mime).startsWith('image/') ? 'localImage' : 'localAudio', path: attachment.path };
+      if (!String(attachment.mime).startsWith('image/')) throw new Error('请先将录音转为文字，确认后再发送');
+      return { type: 'localImage', path: attachment.path };
     });
+  }
+  audio(id: string, threadId: string) {
+    const row = this.store.db.prepare('SELECT * FROM attachments WHERE id=?').get(id);
+    if (!row || row.threadId !== threadId || !String(row.mime).startsWith('audio/')) throw new Error('录音不存在或不属于此会话');
+    const cached = this.store.db.prepare('SELECT text FROM transcriptions WHERE attachmentId=?').get(id);
+    return { path: String(row.path), text: cached ? String(cached.text) : undefined };
+  }
+  saveTranscript(id: string, text: string) {
+    this.store.db.prepare('INSERT OR REPLACE INTO transcriptions VALUES (?,?)').run(id, text);
   }
   async download(id: string) {
     const attachment = this.store.db.prepare('SELECT * FROM attachments WHERE id=?').get(id);
@@ -59,5 +70,6 @@ export class Attachments {
     const row = this.store.db.prepare('SELECT path FROM attachments WHERE id=?').get(id);
     if (row) await rm(String(row.path), { force: true });
     this.store.db.prepare('DELETE FROM attachments WHERE id=?').run(id);
+    this.store.db.prepare('DELETE FROM transcriptions WHERE attachmentId=?').run(id);
   }
 }

@@ -4,6 +4,8 @@ import { Codex } from '../providers/codex.js';
 import { Store } from '../storage/store.js';
 import * as git from '../git/git.js';
 import { Attachments } from '../attachments/attachments.js';
+import { Transcription } from '../attachments/transcription.js';
+import { search } from '../history/search.js';
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = []; let size = 0;
@@ -26,11 +28,16 @@ function json(response: ServerResponse, data: unknown, code = 200) {
 export function api(token: string, codex: Codex, store: Store, attachmentDirectory?: string) {
   const attachments = attachmentDirectory ? new Attachments(store, attachmentDirectory) : undefined;
   const coordinator = new Coordinator(codex, store, attachments);
+  const transcription = attachments ? new Transcription(attachments) : undefined;
   return createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) { json(res, { error: '服务令牌无效' }, 401); return; }
     const url = new URL(req.url!, 'http://127.0.0.1');
     const path = url.pathname;
     try {
+      if (path === '/v1/transcriptions' && req.method === 'POST' && transcription) {
+        const b = await body(req);
+        json(res, await transcription.transcribe(text(b.attachmentId, '录音 ID'), text(b.threadId, '会话 ID'))); return;
+      }
       const attachment = path.match(/^\/v1\/attachments\/([^/]+)$/);
       if (attachment && attachments) {
         if (req.method === 'POST') { json(res, await attachments.upload(attachment[1], text(url.searchParams.get('threadId'), '会话 ID'), req)); return; }
@@ -63,8 +70,14 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       if (path === '/v1/git/diff') { json(res, await git.diff(text(cwd, '项目路径'), text(url.searchParams.get('path'), '文件路径'),
         url.searchParams.get('group') ?? 'unstaged', url.searchParams.get('commit') ?? undefined, Number(url.searchParams.get('parent') ?? 0))); return; }
       if (path === '/v1/git/graph') { json(res, await git.graph(text(cwd, '项目路径'), url.searchParams.get('scope') ?? 'head', url.searchParams.get('cursor') ?? undefined)); return; }
-      if (path === '/v1/git/commit') { json(res, await git.commitDetail(text(cwd, '项目路径'), text(url.searchParams.get('oid'), '提交 ID'))); return; }
+      if (path === '/v1/git/commit') { json(res, await git.commitDetail(text(cwd, '项目路径'), text(url.searchParams.get('oid'), '提交 ID'), Number(url.searchParams.get('parent') ?? 0))); return; }
       await codex.start();
+      if (path === '/v1/search' && req.method === 'POST') {
+        const b = await body(req); let cancelled = false;
+        res.on('close', () => { cancelled = true; });
+        const result = await search(codex, text(b.query, '搜索文字'), b.project ?? '', b.cursor, () => cancelled);
+        if (!cancelled) json(res, result); return;
+      }
       if (path === '/v1/sessions' && req.method === 'GET') {
         const result = await codex.request('thread/list', { limit: 40, sortKey: 'updated_at',
           cursor: url.searchParams.get('cursor'), searchTerm: url.searchParams.get('search'), modelProviders: [] });

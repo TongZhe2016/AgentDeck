@@ -12,6 +12,10 @@ const destination = join(homedir(), '.local/share/agentdeck', version);
 const data = join(homedir(), '.agentdeck');
 const plist = join(homedir(), 'Library/LaunchAgents/com.worldcopy.agentdeck.plist');
 const escape = value => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const transcriptionPython = join(data, 'whisper-venv/bin/python');
+const transcriptionModel = join(data, 'whisper-model');
+const transcriptionEnvironment = existsSync(transcriptionPython) && existsSync(join(transcriptionModel, 'model.bin')) ?
+  `<key>AGENTDECK_TRANSCRIBE_PYTHON</key><string>${escape(transcriptionPython)}</string><key>AGENTDECK_WHISPER_MODEL</key><string>${escape(transcriptionModel)}</string>` : '';
 const codex = process.env.AGENTDECK_CODEX ?? process.env.PATH.split(':').map(path => join(path, 'codex')).find(existsSync);
 if (!codex) throw new Error('请先安装并配置 Codex CLI，或设置 AGENTDECK_CODEX。');
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -20,7 +24,7 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <key>Label</key><string>com.worldcopy.agentdeck</string>
 <key>ProgramArguments</key><array><string>${escape(process.execPath)}</string><string>${escape(join(destination, 'src/main.js'))}</string></array>
 <key>WorkingDirectory</key><string>${escape(homedir())}</string>
-<key>EnvironmentVariables</key><dict><key>PATH</key><string>${escape(process.env.PATH)}</string><key>AGENTDECK_CODEX</key><string>${escape(codex)}</string><key>AGENTDECK_DATA_DIR</key><string>${escape(data)}</string></dict>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>${escape(process.env.PATH)}</string><key>AGENTDECK_CODEX</key><string>${escape(codex)}</string><key>AGENTDECK_DATA_DIR</key><string>${escape(data)}</string>${transcriptionEnvironment}</dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>StandardOutPath</key><string>${escape(join(data, 'service.log'))}</string>
 <key>StandardErrorPath</key><string>${escape(join(data, 'service-error.log'))}</string>
@@ -31,7 +35,7 @@ if (!process.argv.includes('--install')) {
   console.log('执行 node scripts/install-macos-service.mjs --install 开始安装。安装前请停止占用 4317 端口的开发服务。');
   process.exit(0);
 }
-execFileSync('npm', ['ci'], { cwd: join(repo, 'host-service'), stdio: 'inherit' });
+execFileSync('npm', ['ci', '--cache', join(data, 'npm-cache')], { cwd: join(repo, 'host-service'), stdio: 'inherit' });
 execFileSync('npm', ['run', 'build'], { cwd: join(repo, 'host-service'), stdio: 'inherit' });
 mkdirSync(destination, { recursive: true }); mkdirSync(data, { recursive: true, mode: 0o700 }); mkdirSync(dirname(plist), { recursive: true });
 cpSync(join(repo, 'host-service/dist/src'), join(destination, 'src'), { recursive: true });

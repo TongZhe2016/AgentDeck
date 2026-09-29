@@ -14,6 +14,10 @@ import androidx.core.content.FileProvider
 import com.worldcopy.agentdeck.feature.workspace.WorkspaceViewModel
 import java.io.File
 import java.util.UUID
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.asImageBitmap
 
 @Composable
 fun MediaInput(vm: WorkspaceViewModel) {
@@ -64,7 +68,17 @@ fun MediaInput(vm: WorkspaceViewModel) {
                 .onFailure { vm.reportError("此设备没有可用的相机应用") }
         }, enabled = !vm.busy && recorder == null) { Text("拍照") }
         TextButton(onClick = { if (recorder != null) finishRecording() else permission.launch(Manifest.permission.RECORD_AUDIO) }, enabled = !vm.busy) {
-            Text(if (recorder == null) "录音" else "停止录音（最长 2 分钟）")
+            Text(if (recorder == null) "语音转文字" else "停止并转写（最长 2 分钟）")
         }
     }
+}
+
+@Composable
+fun ImageThumbnail(path: String) {
+    val bitmap by produceState<android.graphics.Bitmap?>(null, path) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 })
+        }
+    }
+    bitmap?.let { androidx.compose.foundation.Image(it.asImageBitmap(), "图片附件预览", Modifier.size(64.dp)) }
 }

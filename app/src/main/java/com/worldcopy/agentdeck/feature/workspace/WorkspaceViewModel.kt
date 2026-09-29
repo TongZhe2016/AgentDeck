@@ -23,6 +23,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     var error by mutableStateOf<String?>(null); private set
     var connection by mutableStateOf("服务未连接"); private set
     var sessions by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var searchResults by mutableStateOf<List<JSONObject>?>(null); private set
+    private var searchCursor by mutableStateOf<String?>(null)
+    val hasMoreSearch get() = searchCursor != null
     var selected by mutableStateOf<JSONObject?>(null); private set
     var messages by mutableStateOf<List<ChatItem>>(emptyList()); private set
     var runs by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -50,7 +53,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     val hasMoreSessions get() = !sessionCursor.isNullOrBlank()
     val hasMoreCommits get() = !graphCursor.isNullOrBlank()
     private var api: HostApi? = null
+    val online get() = connection == "在线"
     private var eventsJob: Job? = null
+    private var workJob: Job? = null
     private var reopen: (suspend () -> HostApi)? = null
     private var hostId = ""
     private var requestId: String? = null
@@ -60,7 +65,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private val cacheDir = File(application.noBackupFilesDir, "workspace").apply { mkdirs() }
 
     fun disconnect() {
-        eventsJob?.cancel(); api?.close(); api = null; connection = "已断开 · 电脑任务继续"
+        eventsJob?.cancel(); workJob?.cancel(); api?.close(); api = null; connection = "已断开 · 电脑任务继续"
     }
     fun clearCache() = work {
         withContext(Dispatchers.IO) {
@@ -73,7 +78,13 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearDetail() { detail = null }
     fun clearSession() { saveDraft(); selected = null; messages = emptyList() }
     fun reportError(message: String) { error = message }
-    fun attachImage(uri: android.net.Uri) = work {
+    fun attachImage(uri: android.net.Uri) = work { addImage(uri) }
+    fun importShare(text: String, images: List<android.net.Uri>) = work {
+        check(requestId == null) { "请先确认上次消息送达" }
+        if (text.isNotBlank()) updateDraft(listOf(draft, text).filter { it.isNotBlank() }.joinToString("\n"))
+        images.forEach { addImage(it) }
+    }
+    private suspend fun addImage(uri: android.net.Uri) {
         require(attachments.size < 4 && requestId == null) { "每条消息最多 4 个附件；请先确认上次消息送达" }
         val file = withContext(Dispatchers.IO) {
             val resolver = getApplication<Application>().contentResolver
@@ -96,6 +107,22 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         if (attachments.size >= 4 || requestId != null) { file.delete(); error = "每条消息最多 4 个附件；请先确认上次消息送达"; return }
         attachments = attachments + DraftAttachment(UUID.randomUUID().toString(), file.absolutePath, "audio/mp4")
         saveDraft()
+        transcribe(attachments.last())
+    }
+    fun transcribe(attachment: DraftAttachment) = work {
+        check(requestId == null) { "请先确认上次消息送达" }
+        val service = api ?: error("连接电脑后可重试转写；录音已保留")
+        val threadId = selected?.getString("id") ?: error("请先选择会话")
+        if (!attachment.uploaded) {
+            service.upload(attachment.id, threadId, File(attachment.path), attachment.mime)
+            attachments = attachments.map { if (it.id == attachment.id) it.copy(uploaded = true) else it }; saveDraft()
+        }
+        val text = service.transcribe(attachment.id, threadId)
+        require(text.isNotBlank()) { "未识别到语音；可以重试或删除录音" }
+        draft = listOf(draft, text).filter { it.isNotBlank() }.joinToString("\n")
+        attachments = attachments.filter { it.id != attachment.id }; saveDraft()
+        File(attachment.path).delete()
+        service.removeAttachment(attachment.id)
     }
     fun removeAttachment(attachment: DraftAttachment) = work {
         check(requestId == null) { "请先确认上次消息送达" }
@@ -105,6 +132,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun updateDraft(text: String) { draft = text; saveDraft() }
     private fun file(name: String) = File(cacheDir, "$hostId-$name.json")
+    private fun readCache(name: String): JSONObject? = file(name).takeIf { it.exists() }?.let { JSONObject(it.readText()) }
     private fun writeCache(name: String, content: String) {
         val target = android.util.AtomicFile(file(name))
         val stream = target.startWrite()
@@ -117,7 +145,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private fun work(action: suspend () -> Unit) {
         if (busy) return
-        viewModelScope.launch {
+        workJob = viewModelScope.launch {
             busy = true
             try { action() }
             catch (e: CancellationException) { throw e }
@@ -125,6 +153,16 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             finally { busy = false }
         }
     }
+    fun cancelWork() { workJob?.cancel() }
+    fun searchHistory(query: String, more: Boolean = false, currentProject: Boolean = false) = work {
+        val service = api ?: error("正文搜索需要连接电脑")
+        val body = JSONObject().put("query", query).put("project", if (currentProject) project else "")
+        if (more) body.put("cursor", searchCursor)
+        val result = service.post("search", body)
+        searchResults = (if (more) searchResults.orEmpty() else emptyList()) + result.optJSONArray("matches").objects()
+        searchCursor = result.string("nextCursor").ifBlank { null }
+    }
+    fun clearSearch() { searchResults = null; searchCursor = null }
     fun openOffline(id: String) {
         eventsJob?.cancel(); api?.close(); api = null; saveDraft()
         hostId = id; selected = null; messages = emptyList(); approvals = emptyList(); runs = emptyList()
@@ -137,6 +175,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             val cachedGit = file("git").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
             project = cachedGit?.string("root") ?: ""
             gitState = cachedGit
+            readCache("graph")?.takeIf { it.string("project") == project }?.let {
+                commits = it.optJSONArray("commits").objects(); graphScope = it.string("scope"); graphCursor = null
+            }
         }
     }
     fun connect(id: String, port: Int, token: String, reconnect: suspend () -> HostApi) {
@@ -170,18 +211,22 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                         processEvent(event); cursor = event.getLong("seq"); connection = "在线"; backoff = 1000
                     }
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) {
+                catch (failure: Exception) {
                     connection = "连接中断，等待恢复"
                     delay(backoff + kotlin.random.Random.nextLong(300)); backoff = (backoff * 2).coerceAtMost(30_000)
                     try {
                         api?.close(); api = reopen!!.invoke()
-                        refreshSnapshot()
-                        selected?.let { thread ->
+                        // A normal reconnect replays from the last applied event. Replacing the
+                        // cursor with the newest snapshot would discard offline completions.
+                        if (failure is com.worldcopy.agentdeck.core.network.EventCursorExpired) {
+                          refreshSnapshot()
+                          selected?.let { thread ->
                             val result = api!!.get("sessions/${thread.getString("id")}")
                             selected = result
                             historyCursor = result.string("nextCursor").ifBlank { null }
                             messages = result.optJSONArray("turns").objects().flatMap { it.optJSONArray("items").objects().mapNotNull(::parseItem) }
                             cacheMessages()
+                          }
                         }
                     } catch (e: net.schmizz.sshj.userauth.UserAuthException) {
                         connection = "认证失败，已暂停重连"; error = "请检查此主机的登录凭据"; break
@@ -275,6 +320,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val session = selected ?: return@work
         check(session.optBoolean("managed")) { "请先恢复此会话" }
         require(draft.isNotBlank() || pendingText != null || attachments.isNotEmpty()) { "请输入消息" }
+        require(attachments.none { it.mime.startsWith("audio/") }) { "请先转写录音，确认文字后再发送" }
         for (attachment in attachments.filter { !it.uploaded }) {
             api!!.upload(attachment.id, session.getString("id"), File(attachment.path), attachment.mime)
             attachments = attachments.map { if (it.id == attachment.id) it.copy(uploaded = true) else it }
@@ -310,19 +356,35 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         writeCache("git", gitState.toString())
     }
     fun loadGraph(more: Boolean = false, all: Boolean = graphScope == "all") = work {
+        check(api != null) { "当前显示已缓存的 Graph，连接电脑后可刷新" }
         graphScope = if (all) "all" else "head"
         val query = mutableMapOf("cwd" to project, "scope" to graphScope)
         if (more) graphCursor?.let { query["cursor"] = it }
         val result = api!!.get("git/graph", query)
         commits = ((if (more) commits else emptyList()) + result.optJSONArray("commits").objects()).distinctBy { it.getString("oid") }
         graphCursor = result.string("nextCursor").ifBlank { null }
+        writeCache("graph", JSONObject().put("project", project).put("scope", graphScope).put("commits", JSONArray(commits)).toString())
     }
     fun loadDiff(path: String, group: String, commit: String? = null, parent: Int = 0) = work {
         val query = mutableMapOf("cwd" to project, "path" to path, "group" to group, "parent" to parent.toString())
         commit?.let { query["commit"] = it }
+        if (api == null) {
+            val cached = readCache("diff") ?: error("此 Diff 尚未缓存，请连接电脑")
+            check(cached.string("query") == JSONObject(query).toString()) { "此 Diff 尚未缓存，请连接电脑" }
+            diff = cached.getJSONObject("result"); return@work
+        }
         diff = api!!.get("git/diff", query).put("path", path)
+        writeCache("diff", JSONObject().put("query", JSONObject(query).toString()).put("result", diff).toString())
     }
-    fun loadCommit(oid: String) = work { detail = api!!.get("git/commit", mapOf("cwd" to project, "oid" to oid)) }
+    fun loadCommit(oid: String, parent: Int = 0) = work {
+        if (api == null) {
+            val cached = readCache("commit") ?: error("此提交详情尚未缓存，请连接电脑")
+            check(cached.string("project") == project && cached.getJSONObject("result").string("oid") == oid && cached.getJSONObject("result").optInt("parentIndex") == parent) { "此提交详情尚未缓存，请连接电脑" }
+            detail = cached.getJSONObject("result"); return@work
+        }
+        detail = api!!.get("git/commit", mapOf("cwd" to project, "oid" to oid, "parent" to parent.toString()))
+        writeCache("commit", JSONObject().put("project", project).put("result", detail).toString())
+    }
     private fun cacheMessages() {
         val id = selected?.optString("id") ?: return
         writeCache("history-$id", JSONObject().put("messages", JSONArray(messages.takeLast(500).map {

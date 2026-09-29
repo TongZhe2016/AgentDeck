@@ -22,24 +22,35 @@ import com.worldcopy.agentdeck.feature.workspace.WorkspaceScreen
 import com.worldcopy.agentdeck.ui.theme.AgentDeckTheme
 import org.json.JSONObject
 
+data class SharedInput(val text: String, val images: List<android.net.Uri>)
+
 class MainActivity : ComponentActivity() {
     private var notificationTarget by mutableStateOf<Pair<String, String>?>(null)
+    private var sharedInput by mutableStateOf<SharedInput?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         readTarget(intent)
         enableEdgeToEdge()
-        setContent { AgentDeckTheme { AgentDeckApp(notificationTarget) { notificationTarget = null } } }
+        setContent { AgentDeckTheme { AgentDeckApp(notificationTarget, { notificationTarget = null }, sharedInput) { sharedInput = null } } }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); readTarget(intent) }
     private fun readTarget(intent: Intent) {
         val host = intent.getStringExtra("hostId"); val thread = intent.getStringExtra("threadId")
         if (host != null && thread != null) notificationTarget = host to thread
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            @Suppress("DEPRECATION")
+            val images = if (intent.type?.startsWith("image/") == true) {
+                if (intent.action == Intent.ACTION_SEND_MULTIPLE) intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM)?.toList() ?: emptyList()
+                else listOfNotNull(intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))
+            } else emptyList()
+            sharedInput = SharedInput(intent.getStringExtra(Intent.EXTRA_TEXT) ?: "", images.take(4))
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit = {}) {
+fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit = {}, shared: SharedInput? = null, consumeShare: () -> Unit = {}) {
     val context = LocalContext.current
     val app = context.applicationContext as AgentDeckApplication
     val vm = app.hosts
@@ -72,6 +83,17 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
         }
     }) { padding -> Column(Modifier.padding(padding).fillMaxSize()) {
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        shared?.let { input ->
+            val selectedWorkspace = workspaceId?.let { app.workspaces[it] }
+            Row {
+                TextButton(onClick = {
+                    selectedWorkspace?.importShare(input.text, input.images)
+                    consumeShare()
+                }, enabled = selectedWorkspace?.selected != null && !selectedWorkspace.busy) { Text("将分享内容加入当前会话") }
+                TextButton(onClick = consumeShare) { Text("取消分享") }
+            }
+            if (selectedWorkspace?.selected == null) Text("请选择主机，再打开或新建会话。")
+        }
         if (workspaceId != null) WorkspaceScreen(app.workspace(workspaceId!!)) { workspaceId = null }
         else when (tab) {
             0 -> HostsScreen(vm) { host -> vm.work {

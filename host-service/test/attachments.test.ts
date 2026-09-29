@@ -40,6 +40,25 @@ test('uploaded attachment is bound to its session and included once in a retried
     assert.equal(codex.inputs.length, 1); assert.equal(codex.inputs[0][1].type, 'localImage');
     assert.equal((await fetch(base + '/attachments/image', { method: 'DELETE', headers })).status, 400);
     assert.equal((await fetch(base + '/attachments/image', { headers })).status, 200);
+    const wav = Buffer.alloc(44); wav.write('RIFF'); wav.write('WAVE', 8);
+    assert.equal((await fetch(base + '/attachments/voice?threadId=thread', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'audio/wav' }, body: wav,
+    })).status, 200);
+    // A completed transcription remains repeatable even when the optional Python runtime is absent.
+    store.db.prepare('INSERT INTO transcriptions VALUES (?,?)').run('voice', 'Editable transcript');
+    for (let i = 0; i < 2; i++) {
+      const response = await fetch(base + '/transcriptions', { method: 'POST', headers,
+        body: JSON.stringify({ attachmentId: 'voice', threadId: 'thread' }) });
+      assert.equal(response.status, 200); assert.deepEqual(await response.json(), { text: 'Editable transcript' });
+    }
+    assert.equal((await fetch(base + '/transcriptions', { method: 'POST', headers,
+      body: JSON.stringify({ attachmentId: 'voice', threadId: 'other' }) })).status, 400);
+    codex.emit('notification', { method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } } });
+    assert.equal((await fetch(base + '/runs', { method: 'POST', headers,
+      body: JSON.stringify({ ...run, clientRequestId: 'audio-request', attachments: ['voice'] }) })).status, 400);
+    assert.equal(codex.inputs.length, 1);
+    assert.equal((await fetch(base + '/attachments/voice', { method: 'DELETE', headers })).status, 200);
+    assert.equal(store.db.prepare('SELECT * FROM transcriptions').all().length, 0);
   } finally {
     server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); store.close(); rmSync(dir, { recursive: true, force: true });
   }

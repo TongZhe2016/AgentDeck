@@ -24,6 +24,15 @@ import org.json.JSONObject
 @Composable
 fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tab, vm.project, vm.online) {
+        if (tab != 0 && vm.online && vm.project.isNotBlank()) {
+            if (tab == 2) vm.loadGraph()
+            while (true) {
+                if (!vm.busy) vm.refreshGit()
+                kotlinx.coroutines.delay(15_000)
+            }
+        }
+    }
     BackHandler { when { vm.diff != null -> vm.clearDiff(); vm.detail != null -> vm.clearDetail(); vm.selected != null -> vm.clearSession(); else -> back() } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -41,15 +50,16 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
     vm.error?.let { message -> AlertDialog(onDismissRequest = vm::dismissError, title = { Text("操作未完成") }, text = { SelectionContainer { Text(message) } },
         confirmButton = { TextButton(onClick = vm::dismissError) { Text("知道了") } }) }
     vm.detail?.let { commit ->
-        var parent by remember(commit) { mutableIntStateOf(0) }
+        val parent = commit.optInt("parentIndex")
         AlertDialog(onDismissRequest = vm::clearDetail, title = { Text("提交 ${commit.getString("oid").take(8)}") },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
                 SelectionContainer { Text(commit.getString("message")) }
+                Text("${commit.string("author")} · ${commit.string("date")}")
                 val parents = commit.optJSONArray("parents")
                 if ((parents?.length() ?: 0) > 1) Row { (0 until parents!!.length()).forEach { index ->
-                    FilterChip(selected = parent == index, onClick = { parent = index }, label = { Text("父提交 ${index + 1}") })
+                    FilterChip(selected = parent == index, onClick = { vm.loadCommit(commit.getString("oid"), index) }, enabled = !vm.busy, label = { Text("父提交 ${index + 1}") })
                 } }
-                Text("变更文件（相对第一父提交）")
+                Text("变更文件（相对父提交 ${parent + 1}）")
                 val paths = commit.getJSONArray("paths")
                 (0 until paths.length()).forEach { index ->
                     TextButton(onClick = { vm.loadDiff(paths.getString(index), "commit", commit.getString("oid"), parent) }) { Text(paths.getString(index)) }
@@ -75,15 +85,30 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
 @Composable
 private fun SessionList(vm: WorkspaceViewModel) {
     var search by remember { mutableStateOf("") }
+    var currentProject by remember { mutableStateOf(false) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Field(vm.project, { vm.project = it }, "电脑上的项目绝对路径", enabled = !vm.busy)
             Button(onClick = vm::newSession, enabled = !vm.busy && vm.project.isNotBlank()) { Text("新建 Codex 会话") }
-            Field(search, { search = it }, "搜索会话标题")
-            TextButton(onClick = { vm.refreshSessions(search) }, enabled = !vm.busy) { Text("搜索 / 刷新历史") }
+            Field(search, { search = it; vm.clearSearch() }, "搜索标题或正文", enabled = !vm.busy)
+            Row {
+                TextButton(onClick = { vm.clearSearch(); vm.refreshSessions(search) }, enabled = !vm.busy) { Text("搜索标题 / 刷新") }
+                TextButton(onClick = { vm.searchHistory(search, currentProject = currentProject) }, enabled = !vm.busy && search.isNotBlank()) { Text("搜索正文") }
+                if (vm.busy) TextButton(onClick = vm::cancelWork) { Text("取消查询") }
+            }
+            FilterChip(selected = currentProject, onClick = { currentProject = !currentProject; vm.clearSearch() }, enabled = !vm.busy && vm.project.isNotBlank(), label = { Text("正文限当前项目") })
             if (vm.snapshotTime.isNotBlank()) Text("最近同步：${vm.snapshotTime}", style = MaterialTheme.typography.bodySmall)
         }
-        items(vm.sessions, key = { it.getString("id") }) { session ->
+        vm.searchResults?.let { matches ->
+            item { Text("本次扫描命中 ${matches.size} 条${if (vm.hasMoreSearch) "，可继续扫描更早历史" else ""}") }
+            items(matches) { match ->
+                OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.openSession(match.getJSONObject("thread")) }) {
+                    Column(Modifier.padding(12.dp)) { Text(match.getString("excerpt")); Text(match.getJSONObject("thread").string("cwd"), style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+            if (vm.hasMoreSearch) item { TextButton(onClick = { vm.searchHistory(search, true, currentProject) }, enabled = !vm.busy) { Text("继续搜索更早历史") } }
+        }
+        items(if (vm.searchResults == null) vm.sessions else emptyList(), key = { it.getString("id") }) { session ->
             OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.openSession(session) }) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 3, style = MaterialTheme.typography.titleMedium)
@@ -92,7 +117,7 @@ private fun SessionList(vm: WorkspaceViewModel) {
                 }
             }
         }
-        if (vm.hasMoreSessions) item { TextButton(onClick = { vm.refreshSessions(search, true) }, enabled = !vm.busy) { Text("加载更多") } }
+        if (vm.searchResults == null && vm.hasMoreSessions) item { TextButton(onClick = { vm.refreshSessions(search, true) }, enabled = !vm.busy) { Text("加载更多") } }
     }
 }
 
@@ -140,8 +165,10 @@ private fun Chat(vm: WorkspaceViewModel) {
         com.worldcopy.agentdeck.feature.media.MediaInput(vm)
         FlowRow(Modifier.padding(horizontal = 12.dp)) {
             vm.attachments.forEachIndexed { index, attachment ->
+                if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
+                if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
                 InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
-                    label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "待发送"} ×") })
+                    label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"} ×") })
             }
         }
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,8 +218,10 @@ private fun ProjectHeader(vm: WorkspaceViewModel, refresh: () -> Unit) {
 
 @Composable
 private fun Changes(vm: WorkspaceViewModel) {
+    var filter by remember { mutableStateOf("") }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { ProjectHeader(vm, vm::refreshGit) }
+        item { Field(filter, { filter = it }, "按文件名或目录筛选") }
         vm.gitState?.let { state ->
             item {
                 Text("${state.string("branch")} · ${state.optInt("changedFiles")} 个变更文件", style = MaterialTheme.typography.titleMedium)
@@ -201,12 +230,13 @@ private fun Changes(vm: WorkspaceViewModel) {
                 Text("${state.string("root")}\n查询时间：${state.string("syncedAt")}", style = MaterialTheme.typography.bodySmall)
             }
             mapOf("staged" to "已暂存", "unstaged" to "未暂存", "untracked" to "未跟踪", "conflict" to "冲突").forEach { (group, label) ->
-                val changes = state.optJSONArray("changes").objects().filter { it.getString("group") == group }
+                val changes = state.optJSONArray("changes").objects().filter { it.getString("group") == group && it.getString("path").contains(filter, ignoreCase = true) }
                 if (changes.isNotEmpty()) item { Text("$label (${changes.size})", style = MaterialTheme.typography.titleSmall) }
                 items(changes, key = { group + it.getString("path") }) { change ->
                     OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.loadDiff(change.getString("path"), group) }) {
                         Column(Modifier.padding(12.dp)) { Text(change.getString("path")); Text(change.getString("status") + if (!change.isNull("additions")) "  +${change.optInt("additions")} −${change.optInt("deletions")}" else if (change.optBoolean("binary")) " · 二进制" else "", color = MaterialTheme.colorScheme.primary)
                             change.string("oldPath").takeIf { it.isNotBlank() }?.let { Text("原路径：$it") }
+                            change.string("submodule").takeIf { it.startsWith("S") }?.let { Text("子模块：$it") }
                         }
                     }
                 }
@@ -257,6 +287,7 @@ private fun Graph(vm: WorkspaceViewModel) {
                 Column(Modifier.padding(vertical = 8.dp).weight(1f)) {
                     Text(commit.getString("subject"), maxLines = 2, style = MaterialTheme.typography.titleSmall)
                     Text("${commit.getString("oid").take(8)} · ${commit.getString("author")}", style = MaterialTheme.typography.bodySmall)
+                    Text(commit.string("date").take(10), style = MaterialTheme.typography.bodySmall)
                     Text(commit.string("refs"), maxLines = 1, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                 }
             }

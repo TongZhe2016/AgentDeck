@@ -58,6 +58,7 @@ export async function status(cwd: string) {
   const unborn = headers['branch.oid'] === '(initial)';
   const counts = headers['branch.ab']?.split(' ');
   return { root, gitDir: (await git(root, ['rev-parse', '--absolute-git-dir'])).trim(),
+    commonDir: (await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim(),
     branch: headers['branch.head'], head: unborn ? null : headers['branch.oid'],
     upstream: headers['branch.upstream'] ?? null, ahead: counts ? Number(counts[0].slice(1)) : null,
     behind: counts ? Number(counts[1].slice(1)) : null,
@@ -145,11 +146,13 @@ export async function graph(cwd: string, scope: string, cursor?: string) {
   return { commits: commits.slice(0, 50), nextCursor: more ? Buffer.from(JSON.stringify({ ...snapshot, offset: snapshot.offset + 50 })).toString('base64url') : null };
 }
 
-export async function commitDetail(cwd: string, oid: string) {
+export async function commitDetail(cwd: string, oid: string, parentIndex = 0) {
   if (!/^[0-9a-f]{40,64}$/.test(oid)) throw new Error('无效提交 ID');
   const message = await git(cwd, ['show', '-s', '--format=%B', oid]);
   const parents = (await git(cwd, ['show', '-s', '--format=%P', oid])).trim().split(' ').filter(Boolean);
+  if (parents.length && !parents[parentIndex]) throw new Error('父提交不存在');
+  const metadata = (await git(cwd, ['show', '-s', '--format=%an%x00%aI', oid])).trim().split('\0');
   const paths = (await git(cwd, ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '-z',
-    ...(parents.length ? [parents[0], oid] : [oid])])).split('\0').filter(Boolean);
-  return { oid, message, parents, paths };
+    ...(parents.length ? [parents[parentIndex], oid] : [oid])])).split('\0').filter(Boolean);
+  return { oid, message, parents, paths, parentIndex, author: metadata[0], date: metadata[1] };
 }
