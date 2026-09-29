@@ -1,10 +1,10 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { open, realpath } from 'node:fs/promises';
+import { open, realpath, lstat, readlink } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 const exec = promisify(execFile);
 const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_LITERAL_PATHSPECS: '1', GIT_PAGER: 'cat' };
-export type Change = { path: string; oldPath?: string; group: 'staged' | 'unstaged' | 'untracked' | 'conflict'; status: string; submodule?: string };
+export type Change = { path: string; oldPath?: string; group: 'staged' | 'unstaged' | 'untracked' | 'conflict'; status: string; submodule?: string; additions?: number | null; deletions?: number | null; binary?: boolean };
 
 async function git(cwd: string, args: string[]) {
   const { stdout } = await exec('git', ['-c', 'color.ui=false', ...args], { cwd, env, timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
@@ -34,9 +34,27 @@ export function parseStatus(raw: string) {
   return { headers, changes };
 }
 
+export function parseNumstat(raw: string) {
+  const fields = raw.split('\0'); const stats = new Map<string, { additions: number | null; deletions: number | null; binary: boolean }>();
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i]; if (!field) continue;
+    const first = field.indexOf('\t'), second = field.indexOf('\t', first + 1);
+    const added = field.slice(0, first), deleted = field.slice(first + 1, second);
+    let path = field.slice(second + 1);
+    if (!path) { i++; path = fields[++i]; }
+    stats.set(path, { additions: added === '-' ? null : Number(added), deletions: deleted === '-' ? null : Number(deleted), binary: added === '-' });
+  }
+  return stats;
+}
+
 export async function status(cwd: string) {
   const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
   const { headers, changes } = parseStatus(await git(root, ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all']));
+  const [stagedStats, unstagedStats] = await Promise.all([
+    git(root, ['diff', '--cached', '--numstat', '-z', '--no-ext-diff', '--no-textconv']).then(parseNumstat),
+    git(root, ['diff', '--numstat', '-z', '--no-ext-diff', '--no-textconv']).then(parseNumstat),
+  ]);
+  for (const change of changes) Object.assign(change, (change.group === 'staged' ? stagedStats : unstagedStats).get(change.path) ?? {});
   const unborn = headers['branch.oid'] === '(initial)';
   const counts = headers['branch.ab']?.split(' ');
   return { root, gitDir: (await git(root, ['rev-parse', '--absolute-git-dir'])).trim(),
@@ -74,6 +92,7 @@ export async function diff(cwd: string, path: string, group: string, commit?: st
   const rel = relative(root, resolve(root, path));
   if (!path || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) throw new Error('文件不在当前工作树中');
   if (group === 'untracked') {
+    if ((await lstat(resolve(root, path))).isSymbolicLink()) return { text: await readlink(resolve(root, path)), preview: true, truncated: false, symlink: true };
     const absolute = await realpath(resolve(root, path));
     const physical = relative(root, absolute);
     if (physical === '..' || physical.startsWith('../')) throw new Error('此链接指向工作树之外');

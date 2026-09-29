@@ -50,7 +50,7 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
                 Text(vm.statuses[host.id] ?: "未连接", color = MaterialTheme.colorScheme.primary)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { vm.connect(host) }, enabled = !vm.busy) { Text("连接 / 重连") }
-                    OutlinedButton(onClick = { openWorkspace(host) }, enabled = !vm.busy && vm.statuses[host.id] == "SSH 已连接") { Text("工作台") }
+                    OutlinedButton(onClick = { openWorkspace(host) }, enabled = !vm.busy) { Text("工作台") }
                     TextButton(onClick = { editing = host }, enabled = !vm.busy) { Text("编辑") }
                     TextButton(onClick = { deleting = host }, enabled = !vm.busy) { Text("删除") }
                 }
@@ -180,8 +180,8 @@ fun KeysScreen(vm: HostsViewModel) {
 }
 
 @Composable
-fun Field(value: String, change: (String) -> Unit, label: String, number: Boolean = false) {
-    OutlinedTextField(value, change, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+fun Field(value: String, change: (String) -> Unit, label: String, number: Boolean = false, enabled: Boolean = true) {
+    OutlinedTextField(value, change, enabled = enabled, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Number else KeyboardType.Text))
 }
 

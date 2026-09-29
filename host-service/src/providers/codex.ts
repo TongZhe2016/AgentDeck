@@ -2,7 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
 
-export type RpcMessage = { id?: string | number; method?: string; params?: any; result?: any; error?: { message: string } };
+export type RpcMessage = { id?: string | number; method?: string; params?: any; result?: any; error?: { message: string; code?: number } };
+
+export class RpcError extends Error {}
 
 export class Codex extends EventEmitter {
   private process?: ChildProcessWithoutNullStreams;
@@ -35,11 +37,11 @@ export class Codex extends EventEmitter {
         const pending = this.pending.get(message.id);
         if (!pending) return;
         this.pending.delete(message.id); clearTimeout(pending.timer);
-        if (message.error) pending.reject(new Error(message.error.message));
+        if (message.error) pending.reject(new RpcError(message.error.message));
         else pending.resolve(message.result);
       }
     });
-    await this.request('initialize', { clientInfo: { name: 'agentdeck', title: 'AgentDeck', version: '0.1.0' } });
+    await this.request('initialize', { clientInfo: { name: 'agentdeck', title: 'AgentDeck', version: '0.1.0' }, capabilities: { experimentalApi: true } });
     this.send({ method: 'initialized', params: {} });
   }
 
@@ -59,6 +61,6 @@ export class Codex extends EventEmitter {
   }
 
   reply(id: string | number, result: unknown) { this.send({ id, result }); }
-  reject(id: string | number, message: string) { this.send({ id, error: { message } }); }
+  reject(id: string | number, message: string) { this.send({ id, error: { code: -32601, message } }); }
   close() { this.process?.kill(); }
 }

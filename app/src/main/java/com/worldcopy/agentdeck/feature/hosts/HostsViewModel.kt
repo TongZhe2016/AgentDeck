@@ -44,6 +44,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun save(host: Host, password: String?, token: String?, done: () -> Unit) = work {
+        stopWorkspace(host.id)
         withContext(Dispatchers.IO) {
             closeConnection(host.id)
             store.saveHost(host, password, token)
@@ -56,6 +57,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     fun renameKey(id: String, name: String) = work { withContext(Dispatchers.IO) { store.renameIdentity(id, name) } }
     fun deleteKey(identity: SshIdentity) = work {
         val affected = hosts.filter { it.identityId == identity.id }.map { it.id }.toSet()
+        affected.forEach(::stopWorkspace)
         withContext(Dispatchers.IO) {
             affected.forEach { closeConnection(it) }
             store.deleteIdentity(identity.id)
@@ -63,6 +65,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         statuses = statuses - affected
     }
     fun deleteHost(id: String) = work {
+        stopWorkspace(id)
         withContext(Dispatchers.IO) { closeConnection(id); store.deleteHost(id) }
         statuses = statuses - id
     }
@@ -106,6 +109,36 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         return ports[hostId] ?: error("SSH 隧道未建立")
     }
 
+    suspend fun reconnectService(id: String): com.worldcopy.agentdeck.core.network.HostApi {
+        val host = hosts.firstOrNull { it.id == id } ?: error("主机已删除")
+        try {
+            val port = withContext(Dispatchers.IO) {
+                closeConnection(id)
+                val ssh = SshConnection.connect(host,
+                    store.vault.get("password-$id")?.toString(Charsets.UTF_8),
+                    host.identityId?.let { store.keyPair(it) })
+                connections[id] = ssh
+                ssh.forward(host.servicePort).also { ports[id] = it }
+            }
+            statuses = statuses + (id to "SSH 已连接")
+            val token = withContext(Dispatchers.IO) { store.vault.get("token-$id")?.toString(Charsets.UTF_8) }
+                ?: error("请填写电脑服务令牌")
+            return com.worldcopy.agentdeck.core.network.HostApi(port, token)
+        } catch (e: HostKeyConfirmation) {
+            confirmation = host to e
+            statuses = statuses + (id to "等待核对主机身份")
+            throw e
+        }
+    }
+
+    fun disconnectAll() = work {
+        withContext(Dispatchers.IO) { connections.keys.toList().forEach { closeConnection(it) } }
+        statuses = emptyMap()
+    }
+
+    private fun stopWorkspace(id: String) {
+        (getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication).workspaces[id]?.disconnect()
+    }
     private fun closeConnection(id: String) { ports.remove(id); connections.remove(id)?.close() }
     override fun onCleared() {
         connections.values.forEach { runCatching { it.close() } }

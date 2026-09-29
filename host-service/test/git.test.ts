@@ -26,6 +26,8 @@ test('empty, partial staging, rename, literal paths and untracked preview', asyn
   const state = await status(dir);
   assert.equal(state.changedFiles, 2);
   assert.equal(state.changes.filter(c => c.path === path).length, 2);
+  assert.equal(state.changes.find(c => c.path === path && c.group === 'staged')?.additions, 1);
+  assert.equal(state.changes.find(c => c.path === path && c.group === 'unstaged')?.additions, 1);
   assert.match((await diff(dir, path, 'staged')).text, /\+two/);
   assert.doesNotMatch((await diff(dir, path, 'staged')).text, /\+three/);
   assert.match((await diff(dir, path, 'unstaged')).text, /\+three/);

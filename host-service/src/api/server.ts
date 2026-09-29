@@ -3,6 +3,7 @@ import { Coordinator } from '../execution/coordinator.js';
 import { Codex } from '../providers/codex.js';
 import { Store } from '../storage/store.js';
 import * as git from '../git/git.js';
+import { Attachments } from '../attachments/attachments.js';
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = []; let size = 0;
@@ -22,13 +23,20 @@ function json(response: ServerResponse, data: unknown, code = 200) {
   response.end(JSON.stringify(data));
 }
 
-export function api(token: string, codex: Codex, store: Store) {
-  const coordinator = new Coordinator(codex, store);
+export function api(token: string, codex: Codex, store: Store, attachmentDirectory?: string) {
+  const attachments = attachmentDirectory ? new Attachments(store, attachmentDirectory) : undefined;
+  const coordinator = new Coordinator(codex, store, attachments);
   return createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) { json(res, { error: '服务令牌无效' }, 401); return; }
     const url = new URL(req.url!, 'http://127.0.0.1');
     const path = url.pathname;
     try {
+      const attachment = path.match(/^\/v1\/attachments\/([^/]+)$/);
+      if (attachment && attachments) {
+        if (req.method === 'POST') { json(res, await attachments.upload(attachment[1], text(url.searchParams.get('threadId'), '会话 ID'), req)); return; }
+        if (req.method === 'DELETE') { await attachments.remove(attachment[1]); json(res, { ok: true }); return; }
+        if (req.method === 'GET') { const result = await attachments.download(attachment[1]); res.writeHead(200, { 'Content-Type': result.mime }); res.end(result.bytes); return; }
+      }
       if (path === '/v1/health') { json(res, { protocol: 1, version: '0.1.0', platform: process.platform, providers: ['codex'] }); return; }
       if (path === '/v1/snapshot') { json(res, { runs: store.runs(), approvals: store.approvals(), cursor: store.cursor() }); return; }
       if (path === '/v1/events') {
@@ -80,13 +88,14 @@ export function api(token: string, codex: Codex, store: Store) {
           store.markManaged(id); json(res, { ...result.thread, managed: true }); return;
         }
         if (req.method === 'GET') {
-          const result = await codex.request('thread/read', { threadId: id, includeTurns: true });
-          json(res, { ...result.thread, managed: store.managed(id) }); return;
+          const result = await codex.request('thread/read', { threadId: id, includeTurns: false });
+          const page = await codex.request('thread/turns/list', { threadId: id, limit: 20, sortDirection: 'desc', itemsView: 'full', cursor: url.searchParams.get('cursor') });
+          json(res, { ...result.thread, turns: page.data.reverse(), nextCursor: page.nextCursor, managed: store.managed(id) }); return;
         }
       }
       if (path === '/v1/runs' && req.method === 'POST') {
         const b = await body(req);
-        json(res, await coordinator.start(text(b.clientRequestId, '请求 ID'), text(b.threadId, '会话 ID'), text(b.text, '消息'))); return;
+        json(res, await coordinator.start(text(b.clientRequestId, '请求 ID'), text(b.threadId, '会话 ID'), text(b.text, '消息'), b.attachments ?? [])); return;
       }
       const cancel = path.match(/^\/v1\/runs\/([^/]+)\/cancel$/);
       if (cancel && req.method === 'POST') { json(res, await coordinator.cancel(cancel[1])); return; }

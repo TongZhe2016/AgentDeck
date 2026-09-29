@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { Codex, type RpcMessage } from '../providers/codex.js';
+import { Codex, RpcError, type RpcMessage } from '../providers/codex.js';
 import { Store } from '../storage/store.js';
+import { Attachments } from '../attachments/attachments.js';
 
 const approvalMethods = new Set(['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/tool/requestUserInput']);
 export class Coordinator {
   private pending = new Map<string, { rpcId: string | number; runId: string; method: string }>();
-  constructor(readonly codex: Codex, readonly store: Store) {
+  constructor(readonly codex: Codex, readonly store: Store, private attachments?: Attachments) {
     codex.on('notification', (message: RpcMessage) => this.notification(message));
     codex.on('request', (message: RpcMessage) => this.approval(message));
     codex.on('stopped', (reason: string) => {
@@ -49,15 +50,20 @@ export class Coordinator {
     this.store.event('approval.requested', { id, runId: run.id, method: message.method, params: message.params });
   }
 
-  async start(requestId: string, threadId: string, text: string) {
+  async start(requestId: string, threadId: string, text: string, attachmentIds: string[] = []) {
     const existing = this.store.runByRequest(requestId);
     if (existing) {
-      if (existing.threadId !== threadId || existing.text !== text) throw new Error('请求 ID 已用于另一条消息');
+      if (existing.threadId !== threadId || existing.text !== text || (this.attachments && JSON.stringify(attachmentIds) !== String(this.store.db.prepare('SELECT ids FROM run_attachments WHERE runId=?').get(existing.id)?.ids ?? '[]'))) throw new Error('请求 ID 已用于另一条消息');
       return existing;
     }
     if (!this.store.managed(threadId)) throw new Error('请先显式恢复此历史会话');
     if (this.store.active(threadId)) throw new Error('此会话已有活动或结果待核实的执行');
-    const run = this.store.createRun(requestId, threadId, text);
+    const inputs = this.attachments?.inputs(threadId, attachmentIds) ?? [];
+    const run = this.store.transaction(() => {
+      const run = this.store.createRun(requestId, threadId, text);
+      if (this.attachments) this.store.db.prepare('INSERT INTO run_attachments VALUES (?,?)').run(run.id, JSON.stringify(attachmentIds));
+      return run;
+    });
     this.store.event('run.updated', run);
     // Persist ownership before crossing the process boundary. An uncertain result is never replayed.
     let dispatched = false;
@@ -69,10 +75,10 @@ export class Coordinator {
         await this.codex.request('thread/resume', { threadId, approvalPolicy: 'on-request', sandbox: 'workspace-write' });
       }
       dispatched = true;
-      const result = await this.codex.request('turn/start', { threadId, input: [{ type: 'text', text }] });
+      const result = await this.codex.request('turn/start', { threadId, input: [{ type: 'text', text }, ...inputs] });
       const current = this.store.run(run.id)!;
       if (current.state === 'queued') this.store.updateRun(run.id, { turnId: result.turn.id, state: 'running' });
-    } catch (e) { this.store.updateRun(run.id, { state: dispatched ? 'unknown' : 'failed', error: (e as Error).message }); }
+    } catch (e) { this.store.updateRun(run.id, { state: dispatched && !(e instanceof RpcError) ? 'unknown' : 'failed', error: (e as Error).message }); }
     return this.store.run(run.id)!;
   }
 

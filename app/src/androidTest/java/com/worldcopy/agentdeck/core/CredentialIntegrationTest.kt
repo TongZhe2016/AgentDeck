@@ -45,7 +45,22 @@ class CredentialIntegrationTest {
             val id = File(context.cacheDir, "integration-id").readText()
             val host = Host(name = "Mac integration", address = "10.0.2.2", username = args.getString("sshUser")!!,
                 identityId = id, trustedHostKey = args.getString("sshHostKey"))
-            SshConnection.connect(host, null, store.keyPair(id)).use { assertTrue(it.connected) }
+            if (phase == "configure") {
+                val existing = store.hosts().firstOrNull { it.name == "本机 Mac · 开发测试" }
+                store.saveHost(host.copy(id = existing?.id ?: host.id, name = "本机 Mac · 开发测试"), token = args.getString("serviceToken"))
+            } else {
+                SshConnection.connect(host, null, store.keyPair(id)).use { ssh ->
+                    assertTrue(ssh.connected)
+                    args.getString("serviceToken")?.let { token ->
+                        val api = com.worldcopy.agentdeck.core.network.HostApi(ssh.forward(4317), token)
+                        kotlinx.coroutines.runBlocking {
+                            assertEquals(1, api.get("health").getInt("protocol"))
+                            assertTrue(api.get("sessions").getJSONArray("data").length() > 0)
+                        }
+                        api.close()
+                    }
+                }
+            }
         }
     }
 }
