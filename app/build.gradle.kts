@@ -33,9 +33,15 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging.resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
 }
 
 dependencies {
+    implementation(libs.sshj)
+    implementation(libs.bouncycastle)
+    implementation(libs.slf4j.nop)
+    implementation(libs.okhttp)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
