@@ -52,6 +52,8 @@ test('graph retains both merge parents and fixed pagination roots', async t => {
   assert.equal(first.commits.at(-1)!.oid, root);
   assert.equal((await status(dir)).commitCount, 4);
   assert.deepEqual((await commitDetail(dir, merge)).parents, [main, feature]);
+  assert.deepEqual((await commitDetail(dir, merge, 0)).paths, ['feature']);
+  assert.deepEqual((await commitDetail(dir, merge, 1)).paths, ['main']);
   for (let i = 0; i < 50; i++) git('commit', '--allow-empty', '-m', `extra ${i}`);
   const page = await graph(dir, 'head'); assert.ok(page.nextCursor);
   git('commit', '--allow-empty', '-m', 'new after snapshot');

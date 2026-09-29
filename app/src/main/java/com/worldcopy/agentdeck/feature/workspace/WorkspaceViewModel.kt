@@ -58,6 +58,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private var workJob: Job? = null
     private var reopen: (suspend () -> HostApi)? = null
     private var hostId = ""
+    val hostName get() = (getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication).hosts.firstOrNull { it.id == hostId }?.name ?: "电脑"
     private var requestId: String? = null
     private var pendingText: String? = null
     private var cursor = 0L
@@ -95,9 +96,24 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             options.inSampleSize = 1
             while (maxOf(options.outWidth, options.outHeight) / options.inSampleSize > 2048) options.inSampleSize *= 2
             val bitmap = resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) } ?: error("无法解码图片")
+            val orientation = runCatching { resolver.openInputStream(uri)?.use {
+                android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)
+            } }.getOrNull()
+            val matrix = android.graphics.Matrix().apply {
+                when (orientation) {
+                    2 -> setScale(-1f, 1f)
+                    3 -> setRotate(180f)
+                    4 -> { setRotate(180f); postScale(-1f, 1f) }
+                    5 -> { setRotate(90f); postScale(-1f, 1f) }
+                    6 -> setRotate(90f)
+                    7 -> { setRotate(-90f); postScale(-1f, 1f) }
+                    8 -> setRotate(-90f)
+                }
+            }
+            val oriented = if (matrix.isIdentity) bitmap else android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
             val target = File(cacheDir, "${UUID.randomUUID()}.jpg")
-            try { target.outputStream().use { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it)) } }
-            finally { bitmap.recycle() }
+            try { target.outputStream().use { check(oriented.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it)) } }
+            finally { if (oriented !== bitmap) oriented.recycle(); bitmap.recycle() }
             target
         }
         attachments = attachments + DraftAttachment(UUID.randomUUID().toString(), file.absolutePath, "image/jpeg")
@@ -212,6 +228,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (failure: Exception) {
+                    if (failure is com.worldcopy.agentdeck.core.network.HostApiAuthException) {
+                        connection = "服务认证失败，已暂停重连"; error = failure.message; break
+                    }
                     connection = "连接中断，等待恢复"
                     delay(backoff + kotlin.random.Random.nextLong(300)); backoff = (backoff * 2).coerceAtMost(30_000)
                     try {
@@ -262,7 +281,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     "item/agentMessage/delta" -> {
                         val id = params.getString("itemId"); val old = messages.find { it.id == id }
-                        val updated = ChatItem(id, "Agent", (old?.text ?: "") + params.optString("delta"))
+                        val updated = ChatItem(id, "Agent", boundedText((old?.text ?: "") + params.optString("delta"), 64_000))
                         messages = if (old == null) messages + updated else messages.map { if (it.id == id) updated else it }
                     }
                     "turn/completed" -> cacheMessages()
@@ -395,12 +414,13 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val type = item.optString("type"); val id = item.optString("id")
         return when (type) {
             "userMessage" -> ChatItem(id, "你", item.optJSONArray("content").objects().joinToString("\n") { if (it.optString("type").contains("Audio", true)) "[录音附件]" else if (it.optString("type").contains("Image", true)) "[图片附件]" else it.optString("text", "[附件]") })
-            "agentMessage", "plan" -> ChatItem(id, if (type == "plan") "计划" else "Agent", item.optString("text"))
-            "commandExecution" -> ChatItem(id, "命令 · ${item.optString("status")}", item.optString("command") + "\n" + item.string("aggregatedOutput").takeLast(16000))
+            "agentMessage", "plan" -> ChatItem(id, if (type == "plan") "计划" else "Agent", boundedText(item.optString("text"), 64_000))
+            "commandExecution" -> ChatItem(id, "命令 · ${item.optString("status")}", item.optString("command") + "\n" + boundedText(item.string("aggregatedOutput"), 16_000))
             "fileChange" -> ChatItem(id, "文件变更", item.optJSONArray("changes").objects().joinToString("\n") { it.optString("path") })
             "mcpToolCall" -> ChatItem(id, "工具 · ${item.optString("status")}", "${item.optString("server")}/${item.optString("tool")}")
             else -> null
         }
     }
+    private fun boundedText(text: String, limit: Int) = if (text.length > limit) "[前部内容已省略，完整记录保留在电脑]\n" + text.takeLast(limit) else text
     override fun onCleared() { eventsJob?.cancel(); api?.close() }
 }

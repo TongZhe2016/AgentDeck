@@ -62,4 +62,65 @@ class WorkbenchSmokeTest {
         })
         compose.runOnUiThread { app.stopService(Intent(app, ConnectionService::class.java)) }
     }
+
+    @Test fun voiceBecomesDraftAndSharedImageReachesCodex() {
+        val project = InstrumentationRegistry.getArguments().getString("smokeProject")
+        assumeTrue("Requires local synthetic media fixtures and configured Mac", project != null)
+        val app = compose.activity.application as AgentDeckApplication
+        assumeTrue(java.io.File(app.cacheDir, "voice-test.m4a").exists())
+        compose.onNodeWithText("连接 / 重连").performClick()
+        compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("工作台").performClick()
+        compose.waitUntil(30_000) { compose.onAllNodes(hasSetTextAction() and isEnabled()).fetchSemanticsNodes().size >= 2 }
+        compose.onAllNodes(hasSetTextAction())[0].performTextInput(project!!)
+        compose.onNodeWithText("新建 Codex 会话").performClick()
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("发送").fetchSemanticsNodes().isNotEmpty() }
+        val workspace = app.workspaces.values.first()
+        compose.runOnUiThread { workspace.attachAudio(java.io.File(app.cacheDir, "voice-test.m4a")) }
+        compose.waitUntil(135_000) { !workspace.busy && workspace.draft.isNotBlank() }
+        assertNull(workspace.error)
+        assertTrue(workspace.attachments.isEmpty())
+        assertTrue(workspace.runs.none { it.optString("threadId") == workspace.selected!!.getString("id") })
+        compose.runOnUiThread {
+            workspace.updateDraft("What color is the image? Answer briefly in English. Do not use tools.")
+            val uri = androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.files", java.io.File(app.cacheDir, "image-test.png"))
+            compose.activity.startActivity(Intent(compose.activity, MainActivity::class.java).setAction(Intent.ACTION_SEND)
+                .setType("image/png").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("将分享内容加入当前会话").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("将分享内容加入当前会话").performClick()
+        compose.waitUntil(10_000) { !workspace.busy && workspace.attachments.size == 1 }
+        compose.onNodeWithText("发送").performClick()
+        compose.waitUntil(90_000) { workspace.messages.any { it.role == "Agent" && it.text.contains("red", ignoreCase = true) } }
+    }
+
+    @Test fun gitProjectEditingAndViews() {
+        val project = InstrumentationRegistry.getArguments().getString("smokeProject")
+        assumeTrue("Requires configured Mac and an existing Git repository", project != null)
+        val app = compose.activity.application as AgentDeckApplication
+        compose.onNodeWithText("连接 / 重连").performClick()
+        compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("工作台").performClick()
+        compose.waitUntil(30_000) { compose.onAllNodes(hasSetTextAction() and isEnabled()).fetchSemanticsNodes().size >= 2 }
+        compose.onNodeWithText("Graph").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("/temporary")
+        compose.waitForIdle()
+        compose.onNode(hasSetTextAction()).assertIsEnabled().performTextReplacement(project!!)
+        val workspace = app.workspaces.values.first()
+        assertNull(workspace.error)
+        compose.onNodeWithText("刷新").performClick()
+        compose.waitUntil(20_000) { !workspace.busy && workspace.commits.isNotEmpty() }
+        fun capture(name: String) {
+            compose.waitForIdle()
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().let { bitmap ->
+                java.io.File(app.cacheDir, name).outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+        }
+        capture("graph.png")
+        compose.onNodeWithText("Changes").performClick()
+        compose.waitUntil(20_000) { !workspace.busy && workspace.gitState != null }
+        assertEquals(project, workspace.gitState!!.getString("root"))
+        capture("changes.png")
+    }
 }

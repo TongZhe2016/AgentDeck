@@ -7,8 +7,13 @@ const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_LITERAL_PATHSPECS: '1
 export type Change = { path: string; oldPath?: string; group: 'staged' | 'unstaged' | 'untracked' | 'conflict'; status: string; submodule?: string; additions?: number | null; deletions?: number | null; binary?: boolean };
 
 async function git(cwd: string, args: string[]) {
-  const { stdout } = await exec('git', ['-c', 'color.ui=false', ...args], { cwd, env, timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
-  return stdout;
+  try {
+    const { stdout } = await exec('git', ['-c', 'color.ui=false', ...args], { cwd, env, timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
+    return stdout;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('无法读取项目：请确认电脑上的目录存在，并且已安装 Git');
+    throw e;
+  }
 }
 
 export function parseStatus(raw: string) {

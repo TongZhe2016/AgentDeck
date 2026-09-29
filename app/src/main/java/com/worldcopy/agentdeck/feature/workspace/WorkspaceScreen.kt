@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -20,14 +21,19 @@ import androidx.compose.ui.unit.dp
 import com.worldcopy.agentdeck.feature.hosts.ConfirmDialog
 import com.worldcopy.agentdeck.feature.hosts.Field
 import org.json.JSONObject
+import kotlinx.coroutines.launch
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
-    LaunchedEffect(tab, vm.project, vm.online) {
+    LaunchedEffect(tab, vm.online) {
         if (tab != 0 && vm.online && vm.project.isNotBlank()) {
+            val watchedProject = vm.project
             if (tab == 2) vm.loadGraph()
-            while (true) {
+            while (vm.project == watchedProject) {
                 if (!vm.busy) vm.refreshGit()
                 kotlinx.coroutines.delay(15_000)
             }
@@ -39,6 +45,7 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
             TextButton(onClick = { if (vm.selected != null) vm.clearSession() else back() }) { Text(if (vm.selected == null) "‹ 主机" else "‹ 会话") }
             Text(vm.connection, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.primary)
         }
+        Text(vm.hostName, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1)
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         TabRow(selectedTabIndex = tab) {
             listOf("会话", "Changes", "Graph").forEachIndexed { index, title ->
@@ -64,9 +71,20 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
                 (0 until paths.length()).forEach { index ->
                     TextButton(onClick = { vm.loadDiff(paths.getString(index), "commit", commit.getString("oid"), parent) }) { Text(paths.getString(index)) }
                 }
-            } }, confirmButton = { TextButton(onClick = vm::clearDetail) { Text("关闭") } })
+            } }, confirmButton = { TextButton(onClick = vm::clearDetail) { Text("关闭") } },
+            dismissButton = { TextButton(onClick = {
+                vm.updateDraft(vm.draft + "\n项目：${vm.project}\n提交：${commit.getString("oid")}\n${commit.getString("message")}")
+                vm.clearDetail(); tab = 0
+            }, enabled = vm.selected != null && !vm.hasUnconfirmedSubmission) { Text("引用到对话") } })
     }
     vm.diff?.let { result ->
+        val context = LocalContext.current
+        val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            uri?.let {
+                runCatching { context.contentResolver.openOutputStream(it)?.use { stream -> stream.write(result.optString("text").toByteArray()) } }
+                    .onFailure { vm.reportError(it.message ?: "无法导出 Diff") }
+            }
+        }
         AlertDialog(onDismissRequest = vm::clearDiff, title = { Text(result.getString("path"), maxLines = 2) },
             text = { Column {
                 if (result.optBoolean("truncated")) Text("内容已截断（上限 512 KiB）", color = MaterialTheme.colorScheme.error)
@@ -78,7 +96,14 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
                         Text("${row.old?.toString()?.padStart(4) ?: "    "} ${row.new?.toString()?.padStart(4) ?: "    "}  $line", color = color, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                     }
                 } }
-            } }, confirmButton = { TextButton(onClick = vm::clearDiff) { Text("关闭") } })
+            } }, confirmButton = { TextButton(onClick = vm::clearDiff) { Text("关闭") } },
+            dismissButton = { Row {
+                TextButton(onClick = { export.launch("agentdeck-diff.patch") }) { Text("导出") }
+                TextButton(onClick = {
+                    vm.updateDraft(vm.draft + "\n项目：${vm.project}\n文件：${result.getString("path")}\n${result.optString("text").take(8000)}")
+                    vm.clearDiff(); tab = 0
+                }, enabled = vm.selected != null && !vm.hasUnconfirmedSubmission) { Text("引用到对话") }
+            } })
     }
 }
 
@@ -125,10 +150,18 @@ private fun SessionList(vm: WorkspaceViewModel) {
 private fun Chat(vm: WorkspaceViewModel) {
     val thread = vm.selected ?: return
     var resume by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(vm.messages.lastOrNull()) {
+        val layout = listState.layoutInfo
+        if (layout.totalItemsCount > 0 && (layout.visibleItemsInfo.lastOrNull()?.index ?: 0) >= layout.totalItemsCount - 3) {
+            listState.scrollToItem(layout.totalItemsCount - 1)
+        }
+    }
     val runs = vm.runs.filter { it.optString("threadId") == thread.getString("id") }
     val active = runs.firstOrNull { it.optString("state") in listOf("queued", "running", "waiting_approval", "waiting_input", "unknown") }
     Column(Modifier.fillMaxSize().imePadding()) {
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
                 Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall)
@@ -142,8 +175,10 @@ private fun Chat(vm: WorkspaceViewModel) {
                     shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(item.role, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        SelectionContainer { Text(if (tool && !expanded) item.text.take(300) else item.text,
-                            fontFamily = if (tool) FontFamily.Monospace else FontFamily.Default) }
+                        SelectionContainer {
+                            if (tool) Text(if (!expanded) item.text.take(300) else item.text, fontFamily = FontFamily.Monospace)
+                            else MessageText(item.text)
+                        }
                         if (tool && item.text.length > 300) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开输出") }
                     }
                 }
@@ -162,6 +197,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                 runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }
+        if (vm.messages.isNotEmpty()) TextButton(onClick = { scope.launch { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } }) { Text("查看最新消息") }
         com.worldcopy.agentdeck.feature.media.MediaInput(vm)
         FlowRow(Modifier.padding(horizontal = 12.dp)) {
             vm.attachments.forEachIndexed { index, attachment ->
@@ -261,7 +297,11 @@ fun graphRows(commits: List<Pair<String, List<String>>>): List<GraphRow> {
 
 @Composable
 private fun Graph(vm: WorkspaceViewModel) {
-    val rows = remember(vm.commits) { graphRows(vm.commits.map { c -> c.getString("oid") to c.getJSONArray("parents").let { a -> (0 until a.length()).map { a.getString(it) } } }) }
+    val commits = vm.commits
+    val entries = remember(commits) {
+        val rows = graphRows(commits.map { c -> c.getString("oid") to c.getJSONArray("parents").let { a -> (0 until a.length()).map { a.getString(it) } } })
+        commits.zip(rows)
+    }
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
             ProjectHeader(vm) { vm.loadGraph() }
@@ -270,9 +310,8 @@ private fun Graph(vm: WorkspaceViewModel) {
                 FilterChip(selected = vm.graphScope == "all", onClick = { vm.loadGraph(all = true) }, label = { Text("全部已知引用") })
             }
         }
-        items(vm.commits.size) { index ->
-            val commit = vm.commits[index]; val row = rows[index]
-            Row(Modifier.fillMaxWidth().height(90.dp).clickable(enabled = !vm.busy) { vm.loadCommit(commit.getString("oid")) }) {
+        items(entries, key = { it.first.getString("oid") }) { (commit, row) ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 100.dp).height(IntrinsicSize.Min).clickable(enabled = !vm.busy) { vm.loadCommit(commit.getString("oid")) }) {
                 val color = MaterialTheme.colorScheme.primary
                 Canvas(Modifier.width((maxOf(row.before.size, row.after.size, row.node + 1) * 14 + 12).dp).fillMaxHeight()) {
                     fun x(lane: Int) = (lane * 14 + 10).dp.toPx()

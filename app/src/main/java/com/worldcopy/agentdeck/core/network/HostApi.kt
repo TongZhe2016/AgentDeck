@@ -16,6 +16,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class EventCursorExpired : IOException("事件游标已失效")
+class HostApiAuthException : IOException("电脑服务令牌无效，请检查主机设置")
 
 class HostApi(private val port: Int, private val token: String) {
     private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS).build()
@@ -38,6 +39,7 @@ class HostApi(private val port: Int, private val token: String) {
             override fun onResponse(call: Call, response: Response) {
                 try {
                     val result = response.use {
+                        if (it.code == 401) throw HostApiAuthException()
                         val body = JSONObject(it.body?.string() ?: error("服务返回空响应"))
                         check(it.isSuccessful) { body.optString("error", "请求失败 (${it.code})") }
                         body
@@ -69,6 +71,7 @@ class HostApi(private val port: Int, private val token: String) {
                 try {
                     response.use {
                         if (it.code == 400) throw EventCursorExpired()
+                        if (it.code == 401) throw HostApiAuthException()
                         if (!it.isSuccessful) error("事件流不可用 (${it.code})")
                         val source = it.body?.source() ?: error("事件流为空")
                         while (!call.isCanceled()) {

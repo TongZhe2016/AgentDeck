@@ -35,7 +35,8 @@ class CredentialIntegrationTest {
     // Run prepare, authorize the exported public key on the test host, then run connect.
     @Test fun macSshIntegration() {
         val args = InstrumentationRegistry.getArguments()
-        val phase = args.getString("sshPhase") ?: return
+        val phase = args.getString("sshPhase")
+        org.junit.Assume.assumeTrue("Requires explicit SSH integration parameters", phase != null)
         val store = HostStore(context)
         if (phase == "prepare") {
             val identity = store.createIdentity("Mac integration")
