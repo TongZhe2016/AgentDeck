@@ -67,7 +67,7 @@ AgentDeck/
 
 `host-service` 暂按 npm 单工程设计，提交 lockfile。若选定底座自带包管理器，沿用它并更新此处；一个工程只维护一套锁文件。Gradle Wrapper 的脚本、JAR、配置和版本目录均入库，保证其他机器能使用相同构建入口。
 
-Android 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。当前包内为 `feature/hosts`、`feature/workspace`、`feature/media` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`；工作台先集中承载会话与 Git 页面，出现实际拆分需要时再独立分包。
+Android 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。当前包内为 `feature/projects`、`feature/hosts`、`feature/workspace`、`feature/media` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`；工作台先集中承载会话与 Git 页面，出现实际拆分需要时再独立分包。
 
 ## 3. 依赖与数据边界
 

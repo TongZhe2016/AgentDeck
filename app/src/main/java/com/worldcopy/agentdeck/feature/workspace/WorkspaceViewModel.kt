@@ -23,6 +23,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     var error by mutableStateOf<String?>(null); private set
     var connection by mutableStateOf("服务未连接"); private set
     var sessions by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var projectSessions by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var searchResults by mutableStateOf<List<JSONObject>?>(null); private set
     private var searchCursor by mutableStateOf<String?>(null)
     val hasMoreSearch get() = searchCursor != null
@@ -72,6 +73,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         withContext(Dispatchers.IO) {
             cacheDir.listFiles()?.filter { it.name.startsWith(hostId + "-") && !it.name.contains("-draft-") }?.forEach { it.delete() }
         }
+        projectSessions = emptyList()
         if (api == null) { sessions = emptyList(); messages = emptyList(); gitState = null; commits = emptyList() }
     }
     fun dismissError() { error = null }
@@ -179,6 +181,11 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         searchCursor = result.string("nextCursor").ifBlank { null }
     }
     fun clearSearch() { searchResults = null; searchCursor = null }
+    fun browseProject(path: String) {
+        clearSession(); clearSearch()
+        sessions = projectSessions; sessionCursor = null
+        project = path
+    }
     fun openOffline(id: String) {
         eventsJob?.cancel(); api?.close(); api = null; saveDraft()
         hostId = id; selected = null; messages = emptyList(); approvals = emptyList(); runs = emptyList()
@@ -186,7 +193,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         work {
             sessions = emptyList()
             file("sessions").takeIf { it.exists() }?.let {
-                val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); snapshotTime = cached.optString("syncedAt")
+                val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt")
             }
             val cachedGit = file("git").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
             project = cachedGit?.string("root") ?: ""
@@ -204,7 +211,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         api = HostApi(port, token)
         work {
             file("sessions").takeIf { it.exists() }?.let {
-                val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); snapshotTime = cached.optString("syncedAt")
+                val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt")
             }
             val health = api!!.get("health")
             check(health.getInt("protocol") == 1) { "电脑服务协议不兼容" }
@@ -291,19 +298,32 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun refreshSessions(search: String = "", more: Boolean = false) = work { loadSessions(search, more) }
     private suspend fun loadSessions(search: String = "", more: Boolean = false) {
+        val service = api ?: error("请先连接主机以同步项目")
+        if (search.isBlank() && !more) {
+            val all = readAllSessions { next -> service.get("sessions", next?.let { mapOf("cursor" to it) } ?: emptyMap()) }
+            sessions = all
+            projectSessions = all
+            sessionCursor = null
+            snapshotTime = java.time.Instant.now().toString()
+            cacheSessions()
+            return
+        }
         val query = mutableMapOf("search" to search)
         if (more) sessionCursor?.let { query["cursor"] = it }
-        val result = api!!.get("sessions", query)
+        val result = service.get("sessions", query)
         sessions = ((if (more) sessions else emptyList()) + result.optJSONArray("data").objects()).distinctBy { it.getString("id") }
         sessionCursor = result.string("nextCursor").ifBlank { null }
-        snapshotTime = java.time.Instant.now().toString()
-        writeCache("sessions", JSONObject().put("data", JSONArray(sessions)).put("syncedAt", snapshotTime).toString())
+    }
+    private fun cacheSessions() {
+        writeCache("sessions", JSONObject().put("data", JSONArray(projectSessions)).put("syncedAt", snapshotTime).toString())
     }
     fun newSession() = work {
         require(project.isNotBlank()) { "请输入电脑上的项目绝对路径" }
         val result = api!!.post("sessions", JSONObject().put("cwd", project))
         showSession(result)
-        sessions = listOf(result) + sessions
+        sessions = listOf(result) + sessions.filter { it.string("id") != result.string("id") }
+        projectSessions = listOf(result) + projectSessions.filter { it.string("id") != result.string("id") }
+        cacheSessions()
     }
     fun openSession(session: JSONObject) = work {
         showSession(session)
@@ -313,6 +333,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         if (api == null) return@work
         val result = api!!.get("sessions/${session.getString("id")}")
         selected = result; historyCursor = result.string("nextCursor").ifBlank { null }
+        val summary = JSONObject(result.toString()).apply { remove("turns") }
+        projectSessions = projectSessions.map { if (it.string("id") == result.string("id")) summary else it }
+        cacheSessions()
         messages = result.optJSONArray("turns").objects().flatMap { it.optJSONArray("items").objects().mapNotNull(::parseItem) }
         cacheMessages()
     }

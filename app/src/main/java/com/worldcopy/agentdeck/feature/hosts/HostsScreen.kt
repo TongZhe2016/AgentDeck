@@ -64,6 +64,10 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
     deleting?.let { host -> ConfirmDialog("删除 ${host.name}？", "删除手机上的主机配置和凭据。", { deleting = null }) {
         vm.deleteHost(host.id); deleting = null
     } }
+}
+
+@Composable
+fun HostIdentityDialog(vm: HostsViewModel) {
     vm.confirmation?.let { (host, key) ->
         AlertDialog(onDismissRequest = vm::dismissConfirmation,
             title = { Text(if (key.changed) "主机身份发生变化" else "确认主机身份") },

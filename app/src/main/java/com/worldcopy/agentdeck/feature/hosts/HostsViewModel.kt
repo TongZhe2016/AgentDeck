@@ -104,6 +104,24 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun syncProjects(host: Host? = null) = work {
+        val app = getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication
+        for (target in host?.let { listOf(it) } ?: hosts) {
+            val workspace = app.workspace(target.id)
+            if (workspace.busy) continue
+            workspace.dismissError()
+            try {
+                if (workspace.online) { workspace.refreshSessions(); continue }
+                if (connections[target.id]?.connected != true) connectHost(target)
+                if (confirmation != null) break
+                val token = withContext(Dispatchers.IO) { store.vault.get("token-${target.id}")?.toString(Charsets.UTF_8) }
+                    ?: error("请在主机设置中填写电脑服务令牌")
+                workspace.connect(target.id, localPort(target.id), token) { reconnectService(target.id) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { workspace.reportError(e.message ?: "同步失败") }
+        }
+    }
+
     fun localPort(hostId: String): Int {
         check(connections[hostId]?.connected == true) { "请先连接此主机" }
         return ports[hostId] ?: error("SSH 隧道未建立")

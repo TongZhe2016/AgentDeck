@@ -25,6 +25,7 @@ class WorkbenchSmokeTest {
         }
         fun hostButton(label: String) = compose.onNode(hasText(label) and
             (hostId?.let { hasAnyAncestor(hasTestTag("host-$it")) } ?: SemanticsMatcher("any host") { true }))
+        compose.onNodeWithText("主机").performClick()
         hostButton("连接 / 重连").performScrollTo().performClick()
         compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
         hostButton("工作台").performClick()
@@ -42,6 +43,7 @@ class WorkbenchSmokeTest {
         val project = InstrumentationRegistry.getArguments().getString("smokeProject")
         assumeTrue("Requires an explicitly configured development Mac", project != null)
         val app = compose.activity.application as AgentDeckApplication
+        compose.onNodeWithText("主机").performClick()
         compose.onNodeWithText("连接 / 重连").performClick()
         compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("工作台").performClick()
@@ -74,6 +76,7 @@ class WorkbenchSmokeTest {
         assumeTrue("Requires local synthetic media fixtures and configured Mac", project != null)
         val app = compose.activity.application as AgentDeckApplication
         assumeTrue(java.io.File(app.cacheDir, "voice-test.m4a").exists())
+        compose.onNodeWithText("主机").performClick()
         compose.onNodeWithText("连接 / 重连").performClick()
         compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("工作台").performClick()
@@ -104,6 +107,7 @@ class WorkbenchSmokeTest {
         val project = InstrumentationRegistry.getArguments().getString("smokeProject")
         assumeTrue("Requires configured Mac and an existing Git repository", project != null)
         val app = compose.activity.application as AgentDeckApplication
+        compose.onNodeWithText("主机").performClick()
         compose.onNodeWithText("连接 / 重连").performClick()
         compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("工作台").performClick()

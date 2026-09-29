@@ -27,7 +27,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
-fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
+fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, projectScope: String? = null, back: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab, vm.online) {
         if (tab != 0 && vm.online && vm.project.isNotBlank()) {
@@ -39,10 +39,10 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
             }
         }
     }
-    BackHandler { when { vm.diff != null -> vm.clearDiff(); vm.detail != null -> vm.clearDetail(); vm.selected != null -> vm.clearSession(); else -> back() } }
+    BackHandler { when { vm.diff != null -> vm.clearDiff(); vm.detail != null -> vm.clearDetail(); fromProjects -> { vm.clearSession(); back() }; vm.selected != null -> vm.clearSession(); else -> back() } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { if (vm.selected != null) vm.clearSession() else back() }) { Text(if (vm.selected == null) "‹ 主机" else "‹ 会话") }
+            TextButton(onClick = { if (fromProjects) { vm.clearSession(); back() } else if (vm.selected != null) vm.clearSession() else back() }) { Text(if (fromProjects) "‹ 项目" else if (vm.selected == null) "‹ 主机" else "‹ 会话") }
             Text(vm.connection, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.primary)
         }
         Text(vm.hostName, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1)
@@ -52,7 +52,7 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
             }
         }
-        when (tab) { 0 -> if (vm.selected == null) SessionList(vm) else Chat(vm); 1 -> Changes(vm); 2 -> Graph(vm) }
+        when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else Chat(vm); 1 -> Changes(vm); 2 -> Graph(vm) }
     }
     vm.error?.let { message -> AlertDialog(onDismissRequest = vm::dismissError, title = { Text("操作未完成") }, text = { SelectionContainer { Text(message) } },
         confirmButton = { TextButton(onClick = vm::dismissError) { Text("知道了") } }) }
@@ -108,20 +108,21 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, back: () -> Unit) {
 }
 
 @Composable
-private fun SessionList(vm: WorkspaceViewModel) {
+private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
     var search by remember { mutableStateOf("") }
-    var currentProject by remember { mutableStateOf(false) }
+    var currentProject by remember { mutableStateOf(projectScope != null) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Field(vm.project, { vm.project = it }, "电脑上的项目绝对路径", enabled = !vm.busy)
-            Button(onClick = vm::newSession, enabled = !vm.busy && vm.project.isNotBlank()) { Text("新建 Codex 会话") }
+            if (projectScope == null) Field(vm.project, { vm.project = it }, "电脑上的项目绝对路径", enabled = !vm.busy)
+            else Text(projectScope, style = MaterialTheme.typography.titleMedium)
+            Button(onClick = vm::newSession, enabled = vm.online && !vm.busy && vm.project.isNotBlank()) { Text("新建 Codex 会话") }
             Field(search, { search = it; vm.clearSearch() }, "搜索标题或正文", enabled = !vm.busy)
             Row {
                 TextButton(onClick = { vm.clearSearch(); vm.refreshSessions(search) }, enabled = !vm.busy) { Text("搜索标题 / 刷新") }
                 TextButton(onClick = { vm.searchHistory(search, currentProject = currentProject) }, enabled = !vm.busy && search.isNotBlank()) { Text("搜索正文") }
                 if (vm.busy) TextButton(onClick = vm::cancelWork) { Text("取消查询") }
             }
-            FilterChip(selected = currentProject, onClick = { currentProject = !currentProject; vm.clearSearch() }, enabled = !vm.busy && vm.project.isNotBlank(), label = { Text("正文限当前项目") })
+            FilterChip(selected = currentProject, onClick = { currentProject = !currentProject; vm.clearSearch() }, enabled = projectScope == null && !vm.busy && vm.project.isNotBlank(), label = { Text("正文限当前项目") })
             if (vm.snapshotTime.isNotBlank()) Text("最近同步：${vm.snapshotTime}", style = MaterialTheme.typography.bodySmall)
         }
         vm.searchResults?.let { matches ->
@@ -133,7 +134,7 @@ private fun SessionList(vm: WorkspaceViewModel) {
             }
             if (vm.hasMoreSearch) item { TextButton(onClick = { vm.searchHistory(search, true, currentProject) }, enabled = !vm.busy) { Text("继续搜索更早历史") } }
         }
-        items(if (vm.searchResults == null) vm.sessions else emptyList(), key = { it.getString("id") }) { session ->
+        items(if (vm.searchResults == null) vm.sessions.filter { projectScope == null || it.string("cwd").trimEnd('/') == projectScope.trimEnd('/') } else emptyList(), key = { it.getString("id") }) { session ->
             OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.openSession(session) }) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 3, style = MaterialTheme.typography.titleMedium)
