@@ -6,7 +6,7 @@ Android 上的 SSH Agent 工作台：连接自己的电脑，操作 Codex、Clau
 
 ## 从这里开始
 
-- [原始产品与技术方案](SSH_Agent_Android_Technical_Plan%281%29.md)：产品范围、候选技术与验收场景。
+- [产品与技术方案](SSH_Agent_Android_Technical_Plan%281%29.md)：在原始文件中持续更新，包含产品范围、候选技术与验收场景；第 5.4 节定义 SSH 公钥／私钥登录。
 - [仓库结构与管理设计](docs/repository-plan.md)：目录、模块边界、Git、协作与发布安排。
 - [实施路线](docs/roadmap.md)：近期任务和阶段退出条件。
 - [Wi-Fi ADB 调试](docs/development/wireless-adb.md)：手机配对、连接、验证和重连。
