@@ -1,6 +1,6 @@
 # 仓库结构与管理设计
 
-日期：2026-09-29。本文记录仓库结构与管理设计，已同步 Android Studio 初始化的工程布局；原始技术方案中的技术选型和 API 草案仍需阶段 0 验证。
+日期：2026-09-30。本文记录仓库结构与管理设计。Android、电脑服务、协议和验证资料已落地，实际进度见实施路线。
 
 ## 1. 组织方式
 
@@ -10,7 +10,7 @@
 
 ## 2. 目标目录
 
-当前已有根目录 Gradle 工程、`app/`、管理文件、`.github/` 和 `docs/`；电脑服务、协议、样例及眼镜目录按开发进度创建。
+当前已有根目录 Gradle 工程、`app/`、`host-service/`、`protocol/`、`scripts/`、管理文件、`.github/` 和 `docs/`；独立 fixtures 及眼镜目录按实际开发进度创建。
 
 ```text
 AgentDeck/
@@ -67,7 +67,7 @@ AgentDeck/
 
 `host-service` 暂按 npm 单工程设计，提交 lockfile。若选定底座自带包管理器，沿用它并更新此处；一个工程只维护一套锁文件。Gradle Wrapper 的脚本、JAR、配置和版本目录均入库，保证其他机器能使用相同构建入口。
 
-Android 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。包内随功能增加 `feature/hosts`、`feature/sessions`、`feature/chat`、`feature/git` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`。媒体与 G2 随对应阶段增加。
+Android 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。当前包内为 `feature/hosts`、`feature/workspace`、`feature/media` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`；工作台先集中承载会话与 Git 页面，出现实际拆分需要时再独立分包。
 
 ## 3. 依赖与数据边界
 
@@ -89,7 +89,7 @@ Android Studio 工程采用仓库根目录 Gradle 工程与 `app/` 模块布局�
 
 第 5、13 节的 SSH 身份核验、凭据保存及具体审批绑定属于产品本身的要求。第 10 节的兼容窗口、文件解析兼容和第 14 节的迁移交付随真实版本、真实数据落地。阶段 0 先固定验证版本；首次需要保存并升级已有数据库时再加入实际迁移。
 
-原方案列出的上游项目尚未在本仓库编译验证。选型决策记录候选 commit、构建结果、许可证、必要改造和选择理由，随后冻结依赖。文档中的链接与建议是设计材料，不能自动触发下载安装、服务部署或代码引入。
+原方案列出的上游项目未在本仓库编译；当前沿用已初始化工程，SSH 与 Codex 实测结论支持此选择，详情见 `docs/decisions/001-client-and-transport.md`。文档中的链接与建议是设计材料，不能自动触发下载安装、服务部署或代码引入。
 
 ## 5. Git 与协作
 
