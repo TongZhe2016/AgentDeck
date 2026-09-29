@@ -2,7 +2,7 @@
 
 ## 当前：Codex Android 首版
 
-按最新范围先完成 Android + Codex，验证目标为 Android API 36 ARM64 模拟器与本机 macOS。电脑沿用已有 Codex API 配置。Claude Code 与 G2 随后接入。
+按最新范围先完成 Android + Codex，验证目标为 Android API 36 ARM64 模拟器、本机 macOS 与 Ubuntu 20.04 x86_64。电脑沿用已有 Codex API 配置。Claude Code 与 G2 随后接入。
 
 已实现并纳入仓库：
 
@@ -12,7 +12,7 @@
 - Git 阅读：分组 Changes、唯一路径计数、增删行数、Diff、真实 DAG 分页、合并父提交选择、导出与引用到对话。
 - 日常输入：相册／相机／Android 分享、图片缩放与方向处理、两分钟录音、电脑本地转写后确认文字。
 - 后台与恢复：用户开启后台同步、逐主机事件恢复、跨主机待处理、完成／审批通知及缓存清理。
-- 交付入口：Android 与服务 CI、debug APK、macOS 用户服务安装脚本、可选转写依赖安装脚本。
+- 交付入口：Android 与服务 CI、debug APK、macOS／Linux 用户服务安装脚本、可选转写依赖安装脚本。
 
 实测证据见 [Codex 工作台验证](validation/codex-workbench.md)。当前基础选择记录在 [技术决策](decisions/001-client-and-transport.md)。原方案候选项目没有被复制或作为必须依赖引入。
 
@@ -20,7 +20,7 @@
 
 模拟器已通过真实 SSH 到 Mac、文字／图片、审批／取消、后台断线重连及完成通知。语音使用合成录音检验电脑转写和手机草稿确认。持续检查以具体改动对应的失败为准，不反复运行已经通过且未受影响的测试。
 
-日常发布前仍需物理手机验证麦克风、相机、锁屏、省电、切网和进程回收；补充密码认证的目标 SSH 服务验收、多台物理电脑并行连接、大仓库表现及正式签名。macOS 常驻安装器已提供，实际用户登录服务安装由部署时执行。Linux／Windows 需分别验收，不能从 Mac 结果外推。
+日常发布前仍需物理手机验证麦克风、相机、锁屏、省电、切网和进程回收；补充密码认证的目标 SSH 服务验收、多台物理电脑并行连接、大仓库表现及正式签名。macOS 常驻安装器已提供，实际用户登录服务安装由部署时执行。Ubuntu 20.04 的三台远端构建和 systemd 用户服务已验证，手机 SSH／Codex 联调见 [Ubuntu 验证](validation/ubuntu.md)；Windows 待验收。
 
 功能深化包括终端附着、Git 提交正文搜索与大 Diff 续读、可配置的缓存容量／期限，以及外部活动会话的持续跟随。当前 Git 只读，Graph 搜索与 Git 写操作均不伪装成已实现。
 

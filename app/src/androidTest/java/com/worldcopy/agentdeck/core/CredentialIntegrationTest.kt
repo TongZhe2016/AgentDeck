@@ -1,7 +1,6 @@
 package com.worldcopy.agentdeck.core
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.model.Host
 import com.worldcopy.agentdeck.core.ssh.SshConnection
 import com.worldcopy.agentdeck.core.storage.HostStore
@@ -33,22 +32,32 @@ class CredentialIntegrationTest {
     }
 
     // Run prepare, authorize the exported public key on the test host, then run connect.
-    @Test fun macSshIntegration() {
+    @Test fun sshIntegration() {
         val args = InstrumentationRegistry.getArguments()
         val phase = args.getString("sshPhase")
         org.junit.Assume.assumeTrue("Requires explicit SSH integration parameters", phase != null)
         val store = HostStore(context)
+        val fixture = args.getString("sshFixture") ?: "integration"
+        val name = args.getString("sshName") ?: "本机 Mac · 开发测试"
         if (phase == "prepare") {
-            val identity = store.createIdentity("Mac integration")
-            File(context.cacheDir, "integration.pub").writeText(identity.publicKey + "\n")
-            File(context.cacheDir, "integration-id").writeText(identity.id)
+            val identity = store.createIdentity(name)
+            File(context.cacheDir, "$fixture.pub").writeText(identity.publicKey + "\n")
+            File(context.cacheDir, "$fixture-id").writeText(identity.id)
         } else {
-            val id = File(context.cacheDir, "integration-id").readText()
-            val host = Host(name = "Mac integration", address = "10.0.2.2", username = args.getString("sshUser")!!,
+            val id = File(context.cacheDir, "$fixture-id").readText()
+            if (phase == "cleanup") {
+                store.hosts().filter { it.identityId == id }.forEach { store.deleteHost(it.id) }
+                store.deleteIdentity(id)
+                File(context.cacheDir, "$fixture-id").delete()
+                File(context.cacheDir, "$fixture.pub").delete()
+                return
+            }
+            val host = Host(name = name, address = args.getString("sshHost") ?: "10.0.2.2",
+                port = (args.getString("sshPort") ?: "22").toInt(), username = args.getString("sshUser")!!,
                 identityId = id, trustedHostKey = args.getString("sshHostKey"))
             if (phase == "configure") {
-                val existing = store.hosts().firstOrNull { it.name == "本机 Mac · 开发测试" }
-                store.saveHost(host.copy(id = existing?.id ?: host.id, name = "本机 Mac · 开发测试"), token = args.getString("serviceToken"))
+                val existing = store.hosts().firstOrNull { it.name == name }
+                store.saveHost(host.copy(id = existing?.id ?: host.id, name = name), token = args.getString("serviceToken"))
             } else {
                 SshConnection.connect(host, null, store.keyPair(id)).use { ssh ->
                     assertTrue(ssh.connected)
@@ -56,7 +65,47 @@ class CredentialIntegrationTest {
                         val api = com.worldcopy.agentdeck.core.network.HostApi(ssh.forward(4317), token)
                         kotlinx.coroutines.runBlocking {
                             assertEquals(1, api.get("health").getInt("protocol"))
-                            assertTrue(api.get("sessions").getJSONArray("data").length() > 0)
+                            api.get("sessions").getJSONArray("data")
+                            args.getString("sshProject")?.let { project ->
+                                assertEquals("linux", api.get("health").getString("platform"))
+                                val state = api.get("git/status", mapOf("cwd" to project))
+                                assertEquals("$project/.git", state.getString("commonDir"))
+                                assertTrue(api.get("git/graph", mapOf("cwd" to project)).getJSONArray("commits").length() > 0)
+                                val session = api.post("sessions", org.json.JSONObject().put("cwd", project))
+                                val thread = session.getString("id")
+                                val run = api.post("runs", org.json.JSONObject()
+                                    .put("clientRequestId", java.util.UUID.randomUUID().toString())
+                                    .put("threadId", thread)
+                                    .put("text", "Run uname -s using the command tool, then reply exactly AGENTDECK_UBUNTU_OK. Do not modify files."))
+                                val runId = run.getString("id")
+                                // A real phone tunnel closure must leave the computer task running.
+                                api.close()
+                                ssh.close()
+                                kotlinx.coroutines.delay(12000)
+                                SshConnection.connect(host, null, store.keyPair(id)).use { reconnected ->
+                                    val resumed = com.worldcopy.agentdeck.core.network.HostApi(reconnected.forward(4317), token)
+                                    try {
+                                        kotlinx.coroutines.withTimeout(180000) {
+                                            var completed = false
+                                            while (!completed) {
+                                                val runs = resumed.get("snapshot").getJSONArray("runs")
+                                                val current = (0 until runs.length()).map { runs.getJSONObject(it) }.first { it.getString("id") == runId }
+                                                val status = current.getString("state")
+                                                check(status !in listOf("failed", "interrupted", "unknown")) { current.toString() }
+                                                completed = status == "completed"
+                                                if (!completed) kotlinx.coroutines.delay(2000)
+                                            }
+                                        }
+                                        val turns = resumed.get("sessions/$thread").getJSONArray("turns")
+                                        val items = (0 until turns.length()).flatMap { turnIndex ->
+                                            val entries = turns.getJSONObject(turnIndex).getJSONArray("items")
+                                            (0 until entries.length()).map { entries.getJSONObject(it) }
+                                        }
+                                        assertTrue(items.any { it.optString("type") == "agentMessage" && it.optString("text").contains("AGENTDECK_UBUNTU_OK") })
+                                        assertTrue(items.any { it.optString("type") == "commandExecution" && it.optInt("exitCode", -1) == 0 && it.optString("aggregatedOutput").contains("Linux") })
+                                    } finally { resumed.close() }
+                                }
+                            }
                         }
                         api.close()
                     }

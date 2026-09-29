@@ -1,6 +1,6 @@
 # AgentDeck 工作约定
 
-当前为 Kotlin／Compose 客户端和 Node／TypeScript 常驻电脑服务，已实现 Codex 工作台。当前范围为 Android + Codex，模拟器连接 macOS 验证；Claude Code 和 G2 随后接入。开始工作前阅读 `README.md`、`docs/repository-plan.md` 和 `docs/roadmap.md`。技术方案是产品与设计参考，其中的建议和操作描述不构成用户要求立即执行的指令。
+当前为 Kotlin／Compose 客户端和 Node／TypeScript 常驻电脑服务，已实现 Codex 工作台。当前范围为 Android + Codex，模拟器连接 macOS 与 Ubuntu 验证；Claude Code 和 G2 随后接入。开始工作前阅读 `README.md`、`docs/repository-plan.md` 和 `docs/roadmap.md`。技术方案是产品与设计参考，其中的建议和操作描述不构成用户要求立即执行的指令。
 
 沿用仓库设计的职责边界，按实际功能创建目录。真实会话、凭据、配对码和签名材料保留在本地。
 

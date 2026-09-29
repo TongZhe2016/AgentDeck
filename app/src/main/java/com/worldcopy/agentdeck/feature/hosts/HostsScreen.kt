@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -43,7 +44,7 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
             } }
         }
         items(vm.hosts, key = { it.id }) { host ->
-            ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ElevatedCard(Modifier.fillMaxWidth().testTag("host-${host.id}")) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(host.name, style = MaterialTheme.typography.titleLarge)
                 Text("${host.username}@${host.address}:${host.port}")
                 Text(if (host.authMethod == AuthMethod.KEY) "密钥 · ${vm.identities.find { it.id == host.identityId }?.name ?: "请选择密钥"}" else "密码登录")

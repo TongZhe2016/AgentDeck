@@ -16,12 +16,18 @@ import android.app.NotificationManager
 class WorkbenchSmokeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
-    @Test fun macCodexChatThroughSsh() {
+    @Test fun codexChatThroughSsh() {
         val project = InstrumentationRegistry.getArguments().getString("smokeProject")
-        assumeTrue("Requires an explicitly configured development Mac", project != null)
-        compose.onNodeWithText("连接 / 重连").performClick()
+        assumeTrue("Requires an explicitly configured SSH host", project != null)
+        val hostName = InstrumentationRegistry.getArguments().getString("smokeHost")
+        val hostId = hostName?.let { name ->
+            com.worldcopy.agentdeck.core.storage.HostStore(compose.activity).hosts().first { it.name == name }.id
+        }
+        fun hostButton(label: String) = compose.onNode(hasText(label) and
+            (hostId?.let { hasAnyAncestor(hasTestTag("host-$it")) } ?: SemanticsMatcher("any host") { true }))
+        hostButton("连接 / 重连").performScrollTo().performClick()
         compose.waitUntil(20_000) { compose.onAllNodesWithText("SSH 已连接").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("工作台").performClick()
+        hostButton("工作台").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithText("新建 Codex 会话").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(30_000) { compose.onAllNodes(hasSetTextAction() and isEnabled()).fetchSemanticsNodes().size >= 2 }
         compose.onAllNodes(hasSetTextAction())[0].performTextInput(project!!)

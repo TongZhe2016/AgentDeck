@@ -14,7 +14,7 @@ Android 工程位于根目录，应用模块为 `app/`，application ID 为 `com
 2. 手机“密钥”页创建 Ed25519 密钥，将公钥配置到目标账号 `~/.ssh/authorized_keys`；也可以选择密码登录。
 3. 添加主机，填 SSH 地址、账号、认证方式及电脑 `~/.agentdeck/token` 的服务令牌，服务端口默认 `4317`。模拟器连接本机 Mac 使用 `10.0.2.2`；真机使用电脑可达地址。
 4. 核对 SSH 主机身份，连接后打开工作台，输入电脑上的项目绝对路径，新建或恢复 Codex 会话。
-5. 需要后台接收时开启“后台同步”并允许通知。电脑端服务应常驻；macOS 安装与语音设置见 [电脑服务指南](host-service/README.md)。
+5. 需要后台接收时开启“后台同步”并允许通知。电脑端服务应常驻；macOS／Ubuntu 常驻安装与语音设置见 [电脑服务指南](host-service/README.md)。
 
 图片会缩放并规范方向后上传。录音最长两分钟，在电脑本地转写，回到手机草稿供确认，随后手动发送。文字／图片分享入口也先进入选定会话的草稿。
 
@@ -27,7 +27,7 @@ Android 工程位于根目录，应用模块为 `app/`，application ID 为 `com
 - [贡献指南](CONTRIBUTING.md)：改动、验证和提交方式。
 - [Agent 工作约定](AGENTS.md)：自动化协作者的项目范围。
 
-当前验证目标为 Android 模拟器和这台 Mac。物理手机后台、切网、功耗及其他电脑系统留待对应设备验收。debug APK 可从本地 `app/build/outputs/apk/debug/app-debug.apk` 或 GitHub Actions Android 构建产物取得。
+当前验证目标为 Android 模拟器、macOS 和 Ubuntu 20.04 x86_64（见 [Ubuntu 验证记录](docs/validation/ubuntu.md)）。物理手机后台、切网、功耗及 Windows 留待对应设备验收。debug APK 可从本地 `app/build/outputs/apk/debug/app-debug.apk` 或 GitHub Actions Android 构建产物取得。
 
 ## 许可证与上游复用
 

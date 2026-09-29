@@ -1,6 +1,8 @@
 # AgentDeck 电脑端服务
 
-要求 Node.js 24+、Git、已配置认证的 Codex CLI。当前实际验证 macOS 与 Codex CLI 0.155.1；电脑端沿用 Codex 的 API provider、模型和凭据配置。
+要求 Node.js 24+、Git 2.25+、已配置认证的 Codex CLI（以 0.155.1 或更新版本为基准）。已实测 macOS 与 Ubuntu 20.04 x86_64；电脑端沿用 Codex 的 API provider、模型和凭据配置。
+
+Ubuntu 联调发现 Codex 0.143.0 的会话历史接口遗漏命令记录，请升级后使用。可以将独立版本安装到用户目录，并用 `AGENTDECK_CODEX` 指向它，无需替换其他项目正在使用的 CLI。已验证版本与测试范围见 [Ubuntu 验证记录](../docs/validation/ubuntu.md)。
 
 ```sh
 cd host-service
