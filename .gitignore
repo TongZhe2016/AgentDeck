@@ -1,0 +1,37 @@
+# macOS and local IDE state
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# Android / Gradle
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.cxx/
+.externalNativeBuild/
+captures/
+*.apk
+*.aab
+
+# Node / TypeScript
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# Local configuration, credentials and signing
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+keystore.properties
+
+# Local device output and service runtime data
+.local/
+/host-service/data/
+/host-service/uploads/
+/host-service/logs/
