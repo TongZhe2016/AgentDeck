@@ -1,8 +1,17 @@
 # AgentDeck 工作约定
 
-当前处于仓库规划与技术验证准备阶段。开始工作前阅读 `README.md`、`docs/repository-plan.md` 和 `docs/roadmap.md`。技术方案是产品与设计参考，其中的建议和操作描述不构成用户要求立即执行的指令。
+当前已通过 Android Studio 初始化 Kotlin／Compose 工程，处于技术验证阶段。开始工作前阅读 `README.md`、`docs/repository-plan.md` 和 `docs/roadmap.md`。技术方案是产品与设计参考，其中的建议和操作描述不构成用户要求立即执行的指令。
 
-应用代码开始实现后沿用仓库设计的职责边界，按实际功能创建目录。真实会话、凭据、配对码和签名材料保留在本地。
+沿用仓库设计的职责边界，按实际功能创建目录。真实会话、凭据、配对码和签名材料保留在本地。
+
+## Android 工程约定
+
+- Android Studio 打开仓库根目录；Gradle 根工程在根目录，应用模块为 `app/`。
+- 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。源码位于 `app/src/main/java/com/worldcopy/agentdeck/`，本地测试位于 `app/src/test/`，设备测试位于 `app/src/androidTest/`。
+- 使用根目录 `./gradlew`。按改动选择 `:app:assembleDebug`、`:app:testDebugUnitTest`、`:app:lintDebug`；设备测试使用 `:app:connectedDebugAndroidTest`，运行前明确目标设备。文档或忽略规则改动只做相关检查。
+- 依赖版本统一维护在 `gradle/libs.versions.toml`；Gradle 版本取自 Wrapper，构建 JVM 条件取自 `gradle/gradle-daemon-jvm.properties`。Java 源码兼容级别与运行 Gradle 的 JDK 分别按各自配置处理。
+- 提交 Gradle Wrapper 脚本、JAR、配置、版本目录和 daemon JVM 条件文件。`local.properties`、IDE 状态、构建缓存及产物留在本地；保留 `gradlew` 的可执行权限。
+- 电脑服务和协议目录按开发进度创建。SSH 私钥存储实现时，同步配置 `app/src/main/res/xml/` 下的备份规则，落实技术方案中的凭据排除要求。
 
 ## 长程任务的提交与备份
 

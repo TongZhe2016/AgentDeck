@@ -1,6 +1,6 @@
 # 仓库结构与管理设计
 
-日期：2026-09-29。本文是实现前的仓库设计；原始技术方案中的技术选型和 API 草案仍需阶段 0 验证。
+日期：2026-09-29。本文记录仓库结构与管理设计，已同步 Android Studio 初始化的工程布局；原始技术方案中的技术选型和 API 草案仍需阶段 0 验证。
 
 ## 1. 组织方式
 
@@ -10,7 +10,7 @@
 
 ## 2. 目标目录
 
-下面包含未来代码目录；本次实际创建的是根目录管理文件、`.github/` 和 `docs/`。
+当前已有根目录 Gradle 工程、`app/`、管理文件、`.github/` 和 `docs/`；电脑服务、协议、样例及眼镜目录按开发进度创建。
 
 ```text
 AgentDeck/
@@ -32,17 +32,21 @@ AgentDeck/
 │   ├── development/wireless-adb.md
 │   ├── decisions/             # 首次技术决策时创建
 │   └── validation/            # 首次原型验证时创建
-├── android/                  # Android Studio 打开的 Gradle 工程
-│   ├── app/src/
-│   │   ├── main/
-│   │   ├── test/
-│   │   └── androidTest/
-│   ├── gradle/libs.versions.toml
-│   ├── gradle/wrapper/
-│   ├── gradlew
-│   ├── gradlew.bat
-│   ├── settings.gradle.kts
-│   └── build.gradle.kts
+├── app/                      # Android 应用模块
+│   ├── build.gradle.kts
+│   └── src/
+│       ├── main/
+│       ├── test/
+│       └── androidTest/
+├── gradle/
+│   ├── libs.versions.toml
+│   ├── gradle-daemon-jvm.properties
+│   └── wrapper/
+├── gradlew
+├── gradlew.bat
+├── gradle.properties
+├── settings.gradle.kts
+├── build.gradle.kts
 ├── host-service/             # Node + TypeScript 工程
 │   ├── src/
 │   │   ├── api/              # REST、SSE、请求解析
@@ -63,7 +67,7 @@ AgentDeck/
 
 `host-service` 暂按 npm 单工程设计，提交 lockfile。若选定底座自带包管理器，沿用它并更新此处；一个工程只维护一套锁文件。Gradle Wrapper 的脚本、JAR、配置和版本目录均入库，保证其他机器能使用相同构建入口。
 
-Android 包内建议使用 `feature/hosts`、`feature/sessions`、`feature/chat`、`feature/git` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`。媒体与 G2 随对应阶段增加。正式 application ID 在首次生成工程前确定。
+Android 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。包内随功能增加 `feature/hosts`、`feature/sessions`、`feature/chat`、`feature/git` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`。媒体与 G2 随对应阶段增加。
 
 ## 3. 依赖与数据边界
 
@@ -78,6 +82,8 @@ Android 页面经 ViewModel 调用数据层；SSH、网络和缓存由数据层�
 ## 4. 与原始方案的实现调整
 
 原方案第 14 节的逻辑职责保留，初期把 `providers/` 与 `git-service/` 合并到电脑服务内，减少独立包及版本管理成本。
+
+Android Studio 工程采用仓库根目录 Gradle 工程与 `app/` 模块布局。原方案第 14 节的 Android 职责由这里承载，开发入口和命令以当前布局为准。
 
 第 10、11 节要求附件哈希，但没有说明它替代的昂贵操作或改变的后续决策。首版用附件 ID、大小限制、上传完成状态及实际解码结果处理附件；若以后引入内容去重，再依据收益决定是否计算哈希。SSH 主机身份核验和 Git 固有 OID 属于现有协议语义，保留。
 

@@ -2,7 +2,9 @@
 
 Android 上的 SSH Agent 工作台：连接自己的电脑，操作 Codex、Claude Code，阅读已有会话，并查看项目的 Git Changes 与 Graph。
 
-当前处于仓库规划和真机环境准备阶段。应用工程、电脑服务和构建命令将在底座验证后加入。
+当前已通过 Android Studio 初始化 Kotlin／Compose 应用，入口为模板页面，处于技术验证阶段。Android 工程位于仓库根目录，应用模块为 `app/`，application ID 为 `com.worldcopy.agentdeck`。电脑服务随后续开发加入。
+
+在 Android Studio 中打开仓库根目录。命令行使用根目录的 `./gradlew :app:assembleDebug` 构建 debug APK；开发环境与验证命令见 [贡献指南](CONTRIBUTING.md)。当前工程的构建和安装结果待实际验证。
 
 ## 从这里开始
 

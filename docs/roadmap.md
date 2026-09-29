@@ -1,10 +1,10 @@
 # 实施路线
 
-## 当前：仓库与设备准备
+## 当前：Android 工程初始化与技术验证
 
 仓库结构、Git 文件和贡献入口已建立。Mac 已安装 Android SDK Platform-Tools 37.0.1；2026-09-29 已完成 vivo V2502A（Android 16／API 36）的 Wi-Fi ADB 配对、自动连接和无线 shell 验证。
 
-下一步进入底座验证，首个 debug APK 构建后在这台手机上安装运行。工程创建前确定 application ID；远端仓库已确定为 `TongZhe2016/AgentDeck`，项目许可证待决定。
+Android Studio 已在仓库根目录创建 Kotlin／Compose 工程，应用模块为 `app/`，application ID 为 `com.worldcopy.agentdeck`，当前为模板页面。下一步验证 debug 构建并在这台手机上安装运行，再开展 SSH 与 Agent 模块验证。远端仓库为 `TongZhe2016/AgentDeck`，项目许可证待决定。
 
 ## 阶段 0：选底座、跑原型
 

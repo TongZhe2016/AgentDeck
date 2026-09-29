@@ -1,6 +1,6 @@
 # 贡献指南
 
-先阅读 [仓库设计](docs/repository-plan.md) 和 [实施路线](docs/roadmap.md)。当前阶段接受规划、环境准备和技术验证工作；应用实现从阶段 0 的底座选择开始。
+先阅读 [仓库设计](docs/repository-plan.md) 和 [实施路线](docs/roadmap.md)。Android 模板工程已初始化，当前推进阶段 0 的技术验证与模块选型。
 
 ## 提交改动
 
@@ -10,7 +10,19 @@
 
 ## 开发与验证
 
-Android 工程创建后从 `android/` 打开，电脑服务在 `host-service/` 开发。实际工具版本和构建命令随首个可运行工程提交。
+Android Studio 打开仓库根目录，应用模块为 `app/`，包名为 `com.worldcopy.agentdeck`。电脑服务后续在 `host-service/` 开发。
+
+Gradle 版本由 `gradle/wrapper/gradle-wrapper.properties` 固定，AGP／Compose 等依赖由 `gradle/libs.versions.toml` 管理，构建 JVM 条件由 `gradle/gradle-daemon-jvm.properties` 声明。本机 Android SDK 路径放入被忽略的 `local.properties`，不要把本机绝对路径写入共享构建配置。
+
+以下命令从仓库根目录执行，按改动选择需要的项；当前初始化工程尚未在本任务中构建验证。
+
+```sh
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+```
+
+设备测试使用 `./gradlew :app:connectedDebugAndroidTest`，执行前明确测试设备。模板自带的示例测试仅验证示例行为，业务功能需对应的行为测试。
 
 运行任何检查之前，先说明：它检测什么具体失败，失败会让下一步采取什么不同动作。根据改动选择验证：协议需双端消费样例，进程管理需断线后执行验证，纯文档改动检查路径和叙述即可。针对实际行为编写测试，避免只重复实现细节。
 
