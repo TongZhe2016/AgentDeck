@@ -95,9 +95,9 @@ Android Studio 工程采用仓库根目录 Gradle 工程与 `app/` 模块布局�
 
 默认分支为 `main`，远端 `origin` 为 `git@github.com:TongZhe2016/AgentDeck.git`，托管于 GitHub。
 
-开发采用短分支，例如 `feat/ssh-connect`、`fix/event-resume`、`docs/repository-layout`。单人文档维护可以直接提交；涉及功能与协议的改动通过 PR 留下问题、结果和验证记录。提交建议使用 `feat:`、`fix:`、`docs:`、`test:`、`chore:`，无需额外提交钩子强制格式。
+Agent 全程代写默认直接在 `main` 开发、提交和推送，每个完成的子任务保留清晰的提交与验证记录。已有工作分支完成验证后由 Agent 直接合入 `main`，无需用户手动处理。只有用户明确要求时才另开分支或创建 PR。提交建议使用 `feat:`、`fix:`、`docs:`、`test:`、`chore:`，无需额外提交钩子强制格式。
 
-Agent 执行长程任务时，每完成一个有明确结果的子任务即 commit 并 push 当前工作分支，持续备份进度；具体约定见根目录 `AGENTS.md`。
+Agent 执行长程任务时，每完成一个有明确结果的子任务即 commit 并 push 到 `origin/main`，持续备份进度；具体约定见根目录 `AGENTS.md`。
 
 Git 跟踪源代码、构建入口、依赖锁文件和脱敏样例。忽略本机 SDK 路径、IDE 状态、构建缓存、依赖目录、签名密钥与运行数据。忽略规则按实际目录写，避免误伤测试数据库、Gradle Wrapper 和正常图片资产。
 
