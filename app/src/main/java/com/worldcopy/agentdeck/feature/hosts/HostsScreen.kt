@@ -15,7 +15,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import com.worldcopy.agentdeck.ui.components.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -32,30 +36,46 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
     var deleting by remember { mutableStateOf<Host?>(null) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(20.dp)) {
         item {
-            Text("你的电脑，随时掌舵", style = MaterialTheme.typography.headlineSmall)
-            Text("通过 SSH 连接主机，继续项目中的工作。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = { adding = true }, enabled = !vm.busy) { Text("添加主机") }
+            PageHeading("我的主机", "${vm.hosts.size} 台电脑 · 通过 SSH 连接") {
+                Button(onClick = { adding = true }, enabled = !vm.busy) {
+                    DeckGlyph(DeckIcon.Add); Spacer(Modifier.width(8.dp)); Text("添加主机")
+                }
+            }
         }
         if (vm.hosts.isEmpty()) item {
-            OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp)) {
-                Text("连接第一台电脑", style = MaterialTheme.typography.titleMedium)
-                Text("可以使用账号密码，或在「密钥」中创建、导入 SSH 密钥后登录。")
-            } }
+            EmptyState(DeckIcon.Computer, "连接第一台电脑", "使用账号密码，或在密钥页创建、导入 SSH 密钥。电脑上的项目和对话会集中显示在首页。")
         }
         items(vm.hosts, key = { it.id }) { host ->
-            ElevatedCard(Modifier.fillMaxWidth().testTag("host-${host.id}")) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(host.name, style = MaterialTheme.typography.titleLarge)
-                Text("${host.username}@${host.address}:${host.port}")
-                Text(if (host.authMethod == AuthMethod.KEY) "密钥 · ${vm.identities.find { it.id == host.identityId }?.name ?: "请选择密钥"}" else "密码登录")
-                Text(vm.statuses[host.id] ?: "未连接", color = MaterialTheme.colorScheme.primary)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.connect(host) }, enabled = !vm.busy) { Text("连接 / 重连") }
-                    OutlinedButton(onClick = { openWorkspace(host) }, enabled = !vm.busy) { Text("工作台") }
-                    TextButton(onClick = { editing = host }, enabled = !vm.busy) { Text("编辑") }
-                    TextButton(onClick = { deleting = host }, enabled = !vm.busy) { Text("删除") }
+            var menu by remember { mutableStateOf(false) }
+            QuietCard(Modifier.fillMaxWidth().testTag("host-${host.id}")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        IconTile(DeckIcon.Computer)
+                        Column(Modifier.weight(1f)) {
+                            Text(host.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        Box {
+                            IconButton(onClick = { menu = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.More, "${host.name}的主机操作") }
+                            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; editing = host })
+                                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; deleting = host })
+                            }
+                        }
+                    }
+                    val status = vm.statuses[host.id] ?: "未连接"
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusLabel(status, positive = status == "SSH 已连接")
+                        Text(if (host.authMethod == AuthMethod.KEY) "密钥 · ${vm.identities.find { it.id == host.identityId }?.name ?: "请选择密钥"}" else "密码登录",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilledTonalButton(onClick = { openWorkspace(host) }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Code); Spacer(Modifier.width(8.dp)); Text("工作台") }
+                        OutlinedButton(onClick = { vm.connect(host) }, enabled = !vm.busy) { Text("连接 / 重连") }
+                    }
                 }
-            } }
+            }
         }
     }
     if (adding || editing != null) HostEditor(editing, vm.identities, vm.busy,
@@ -97,6 +117,7 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = { if (!busy) dismiss() }, title = { Text(if (original == null) "添加主机" else "编辑主机") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionLabel("连接信息")
             Field(name, { name = it }, "主机名称")
             Field(address, { address = it }, "SSH 地址")
             Field(port, { port = it }, "SSH 端口", number = true)
@@ -110,11 +131,13 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
             } else {
                 if (identities.isEmpty()) Text("请先在密钥页创建或导入密钥。")
-                identities.forEach { key -> FilterChip(selected = identity == key.id, onClick = { identity = key.id }, label = { Text(key.name) }) }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    identities.forEach { key -> FilterChip(selected = identity == key.id, onClick = { identity = key.id }, label = { Text(key.name) }) }
+                }
             }
             HorizontalDivider()
             Text("通过 SSH 自动配置电脑服务。请先在电脑上安装并启动 AgentDeck。", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起高级服务设置" else "高级服务设置") }
+            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起高级服务设置" else "高级服务设置"); Spacer(Modifier.width(8.dp)); DeckChevron(advanced) }
             if (advanced) {
                 Field(servicePort, { servicePort = it }, "服务端口", number = true)
                 Field(serviceDirectory, { serviceDirectory = it }, "服务数据目录")
@@ -122,7 +145,7 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } },
-        confirmButton = { TextButton(enabled = !busy, onClick = {
+        confirmButton = { Button(enabled = !busy, onClick = {
             try {
                 val host = Host(id = original?.id ?: java.util.UUID.randomUUID().toString(), name = name.trim(), address = address.trim(),
                     port = port.toIntOrNull() ?: 0, username = username.trim(), authMethod = method,
@@ -156,25 +179,53 @@ fun KeysScreen(vm: HostsViewModel) {
     }
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("登录密钥", style = MaterialTheme.typography.headlineSmall)
-            Text("私钥加密保存在此设备。将公钥配置到电脑后，即可选择密钥登录。")
-            Button(onClick = { creating = true }, enabled = !vm.busy) { Text("创建 Ed25519 密钥") }
-            OutlinedButton(onClick = { importing = true }, enabled = !vm.busy) { Text("导入已有密钥") }
+            PageHeading("登录密钥", "在此设备加密保存，连接时选择使用") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button(onClick = { creating = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Add); Spacer(Modifier.width(8.dp)); Text("创建 Ed25519 密钥") }
+                    OutlinedButton(onClick = { importing = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Upload); Spacer(Modifier.width(8.dp)); Text("导入已有密钥") }
+                }
+            }
+        }
+        if (vm.identities.isEmpty()) item {
+            EmptyState(DeckIcon.Key, "让登录更方便", "生成手机专用密钥，或导入电脑已有密钥。将对应公钥授权到电脑后，即可使用密钥登录。")
         }
         items(vm.identities, key = { it.id }) { key ->
-            OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(key.name, style = MaterialTheme.typography.titleLarge)
-                SelectionContainer { Text(key.publicKey, style = MaterialTheme.typography.bodySmall) }
-                FlowRow {
-                    TextButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                        .setPrimaryClip(ClipData.newPlainText("SSH 公钥", key.publicKey)) }) { Text("复制") }
-                    TextButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND)
-                        .setType("text/plain").putExtra(Intent.EXTRA_TEXT, key.publicKey), "分享 SSH 公钥")) }) { Text("分享") }
-                    TextButton(onClick = { exportKey = key; export.launch("agentdeck-${key.id.take(8)}.pub") }) { Text("导出 .pub") }
-                    TextButton(onClick = { naming = key }, enabled = !vm.busy) { Text("重命名") }
-                    TextButton(onClick = { deleting = key }, enabled = !vm.busy) { Text("删除") }
+            var expanded by remember { mutableStateOf(false) }
+            var menu by remember { mutableStateOf(false) }
+            QuietCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        IconTile(DeckIcon.Key)
+                        Column(Modifier.weight(1f)) {
+                            Text(key.name, style = MaterialTheme.typography.titleLarge)
+                            Text("${key.publicKey.substringBefore(' ').removePrefix("ssh-")} · ${vm.hosts.count { it.identityId == key.id }} 台主机使用",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Box {
+                            IconButton(onClick = { menu = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.More, "${key.name}的密钥操作") }
+                            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; naming = key })
+                                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; deleting = key })
+                            }
+                        }
+                    }
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(if (expanded) "收起公钥" else "查看公钥"); Spacer(Modifier.width(8.dp)); DeckChevron(expanded)
+                    }
+                    if (expanded) {
+                        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.small) {
+                            SelectionContainer { Text(key.publicKey, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+                        }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                                .setPrimaryClip(ClipData.newPlainText("SSH 公钥", key.publicKey)) }) { Text("复制") }
+                            TextButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND)
+                                .setType("text/plain").putExtra(Intent.EXTRA_TEXT, key.publicKey), "分享 SSH 公钥")) }) { Text("分享") }
+                            TextButton(onClick = { exportKey = key; export.launch("agentdeck-${key.id.take(8)}.pub") }) { Text("导出 .pub") }
+                        }
+                    }
                 }
-            } }
+            }
         }
     }
     if (importing) KeyImportDialog(vm) { importing = false }
@@ -192,7 +243,7 @@ fun KeysScreen(vm: HostsViewModel) {
 
 @Composable
 fun Field(value: String, change: (String) -> Unit, label: String, number: Boolean = false, enabled: Boolean = true) {
-    OutlinedTextField(value, change, enabled = enabled, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+    OutlinedTextField(value, change, enabled = enabled, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Number else KeyboardType.Text))
 }
 

@@ -2,10 +2,8 @@ package com.worldcopy.agentdeck.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
-
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+val DeckNavy = Color(0xFF15243B)
+val DeckMint = Color(0xFF56E0C2)
+val DeckTeal = Color(0xFF006B5B)
+val DeckPaper = Color(0xFFF5F8FA)
+val DeckInk = Color(0xFF172632)

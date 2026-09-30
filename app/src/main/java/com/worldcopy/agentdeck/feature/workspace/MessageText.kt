@@ -27,13 +27,13 @@ fun MessageText(text: String) {
                             Text(language, style = MaterialTheme.typography.labelSmall)
                             TextButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Text("复制代码") }
                         }
-                        Text(code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                        Text(code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             } else block.lines().forEach { line ->
                 val heading = line.startsWith("# ") || line.startsWith("## ") || line.startsWith("### ")
                 val body = if (heading) line.trimStart('#', ' ') else line
-                Text(inlineText(body), style = if (heading) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium)
+                Text(inlineText(body), style = if (heading) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge)
             }
         }
     }

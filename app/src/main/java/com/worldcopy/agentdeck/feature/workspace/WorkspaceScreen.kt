@@ -12,7 +12,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import com.worldcopy.agentdeck.ui.components.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -39,11 +42,16 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
     }
     BackHandler { when { vm.diff != null -> vm.clearDiff(); fromProjects -> { vm.clearSession(); back() }; vm.selected != null -> vm.clearSession(); else -> back() } }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { if (fromProjects) { vm.clearSession(); back() } else if (vm.selected != null) vm.clearSession() else back() }) { Text(if (fromProjects) "‹ 项目" else if (vm.selected == null) "‹ 主机" else "‹ 会话") }
-            Text(vm.connection, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.primary)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { if (fromProjects) { vm.clearSession(); back() } else if (vm.selected != null) vm.clearSession() else back() }) {
+                DeckGlyph(DeckIcon.Back, if (fromProjects) "返回项目" else if (vm.selected == null) "返回主机" else "返回会话")
+            }
+            Column(Modifier.weight(1f)) {
+                Text(vm.hostName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(vm.connection, style = MaterialTheme.typography.bodySmall,
+                    color = if (vm.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        Text(vm.hostName, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1)
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         TabRow(selectedTabIndex = tab) {
             listOf("会话", "Changes", "Graph").forEachIndexed { index, title ->
@@ -55,32 +63,13 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
     vm.error?.let { message -> AlertDialog(onDismissRequest = vm::dismissError, title = { Text("操作未完成") }, text = { SelectionContainer { Text(message) } },
         confirmButton = { TextButton(onClick = vm::dismissError) { Text("知道了") } }) }
     vm.diff?.let { result ->
-        val context = LocalContext.current
-        val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-            uri?.let {
-                runCatching { context.contentResolver.openOutputStream(it)?.use { stream -> stream.write(result.optString("text").toByteArray()) } }
-                    .onFailure { vm.reportError(it.message ?: "无法导出 Diff") }
-            }
-        }
-        AlertDialog(onDismissRequest = vm::clearDiff, title = { Text(result.getString("path"), maxLines = 2) },
-            text = { Column {
-                if (result.optBoolean("truncated")) Text("内容已截断（上限 512 KiB）", color = MaterialTheme.colorScheme.error)
-                if (result.optBoolean("preview")) Text("未跟踪文件预览")
-                SelectionContainer { LazyColumn(Modifier.heightIn(max = 500.dp)) {
-                    items(diffLines(result.optString("text"), result.optBoolean("preview"))) { row ->
-                        val line = row.text
-                        val color = when { line.startsWith('+') -> Color(0xFF1C7A49); line.startsWith('-') -> Color(0xFFB3261E); else -> MaterialTheme.colorScheme.onSurface }
-                        Text("${row.old?.toString()?.padStart(4) ?: "    "} ${row.new?.toString()?.padStart(4) ?: "    "}  $line", color = color, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                    }
-                } }
-            } }, confirmButton = { TextButton(onClick = vm::clearDiff) { Text("关闭") } },
-            dismissButton = { Row {
-                TextButton(onClick = { export.launch("agentdeck-diff.patch") }) { Text("导出") }
-                TextButton(onClick = {
-                    vm.updateDraft(vm.draft + "\n项目：${vm.project}\n文件：${result.getString("path")}\n${result.optString("text").take(8000)}")
-                    vm.clearDiff(); tab = 0
-                }, enabled = vm.selected != null && !vm.hasUnconfirmedSubmission) { Text("引用到对话") }
-            } })
+        DiffViewer(result, vm::clearDiff,
+            quote = if (vm.selected != null && !vm.hasUnconfirmedSubmission) ({
+                vm.updateDraft(vm.draft + "\n项目：${vm.project}\n文件：${result.getString("path")}\n${result.optString("text").take(8000)}")
+                vm.clearDiff(); tab = 0
+            }) else null,
+            error = vm::reportError)
+
     }
 }
 
@@ -91,10 +80,10 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             if (projectScope == null) Field(vm.project, { vm.project = it }, "电脑上的项目绝对路径", enabled = !vm.busy)
-            else Text(projectScope, style = MaterialTheme.typography.titleMedium)
+            else Text(projectScope, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = vm::newSession, enabled = vm.online && !vm.busy && vm.project.isNotBlank()) { Text("新建 Codex 会话") }
             Field(search, { search = it; vm.clearSearch() }, "搜索标题或正文", enabled = !vm.busy)
-            Row {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { vm.clearSearch(); vm.refreshSessions(search) }, enabled = !vm.busy) { Text("搜索标题 / 刷新") }
                 TextButton(onClick = { vm.searchHistory(search, currentProject = currentProject) }, enabled = !vm.busy && search.isNotBlank()) { Text("搜索正文") }
                 if (vm.busy) TextButton(onClick = vm::cancelWork) { Text("取消查询") }
@@ -114,9 +103,9 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
         items(if (vm.searchResults == null) vm.sessions.filter { projectScope == null || it.string("cwd").trimEnd('/') == projectScope.trimEnd('/') } else emptyList(), key = { it.getString("id") }) { session ->
             OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.openSession(session) }) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 3, style = MaterialTheme.typography.titleMedium)
-                    Text(session.string("cwd"), style = MaterialTheme.typography.bodySmall)
-                    Text(if (session.optBoolean("managed")) "受管理会话" else "已有历史 · 只读", color = MaterialTheme.colorScheme.primary)
+                    Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                    Text(session.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    StatusLabel(if (session.optBoolean("managed")) "受管理会话" else "已有历史 · 只读", positive = session.optBoolean("managed"))
                 }
             }
         }
@@ -142,7 +131,7 @@ private fun Chat(vm: WorkspaceViewModel) {
         LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
-                Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall)
+                Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
             }
             if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
@@ -150,11 +139,11 @@ private fun Chat(vm: WorkspaceViewModel) {
                 var expanded by remember(item.id) { mutableStateOf(false) }
                 val tool = item.role.startsWith("命令") || item.role.startsWith("工具")
                 Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                    shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+                    shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(start = if (item.role == "你") 24.dp else 0.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         Text(item.role, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                         SelectionContainer {
-                            if (tool) Text(if (!expanded) item.text.take(300) else item.text, fontFamily = FontFamily.Monospace)
+                            if (tool) Text(if (!expanded) item.text.take(300) else item.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
                             else MessageText(item.text)
                         }
                         if (tool && item.text.length > 300) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开输出") }
@@ -175,22 +164,35 @@ private fun Chat(vm: WorkspaceViewModel) {
                 runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }
-        if (vm.messages.isNotEmpty()) TextButton(onClick = { scope.launch { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } }) { Text("查看最新消息") }
-        com.worldcopy.agentdeck.feature.media.MediaInput(vm)
-        FlowRow(Modifier.padding(horizontal = 12.dp)) {
-            vm.attachments.forEachIndexed { index, attachment ->
-                if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
-                if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
-                InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
-                    label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"} ×") })
+        if (vm.messages.isNotEmpty() && listState.canScrollForward) TextButton(onClick = { scope.launch { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } }) {
+            Text("查看最新消息")
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    vm.attachments.forEachIndexed { index, attachment ->
+                        if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
+                        if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
+                        InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
+                            label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"}") },
+                            trailingIcon = { DeckGlyph(DeckIcon.Close, modifier = Modifier.size(16.dp)) })
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                    OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
+                        shape = MaterialTheme.shapes.medium)
+                    Button(onClick = vm::send, enabled = !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission),
+                        contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
+                        Text(if (vm.hasUnconfirmedSubmission) "确认送达" else "发送")
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    com.worldcopy.agentdeck.feature.media.MediaInput(vm)
+                    Text("草稿保存在此设备", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                }
             }
         }
-        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息 · 离线时保留草稿") }, maxLines = 5)
-            Button(onClick = vm::send, enabled = !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission)) {
-                Text(if (vm.hasUnconfirmedSubmission) "确认送达" else "发送")
-            }
-        }
+
     }
     if (resume) ConfirmDialog("恢复原有会话", "请确认电脑上的原会话已停止。恢复后将由 AgentDeck 服务继续执行。", { resume = false }) { resume = false; vm.resume() }
 }
@@ -216,7 +218,7 @@ private fun ApprovalCard(vm: WorkspaceViewModel, approval: JSONObject) {
             Button(onClick = { vm.answer(approval, answers) }, enabled = !vm.busy && questions.all { !answers[it.getString("id")].isNullOrBlank() }) { Text("提交回答") }
         } else {
             SelectionContainer { Text(listOf(params.string("command"), params.string("reason"), params.string("cwd")).filter { it.isNotBlank() }.joinToString("\n").ifBlank { params.toString(2) }) }
-            Row {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { vm.approve(approval, true) }, enabled = !vm.busy) { Text("允许本次") }
                 TextButton(onClick = { vm.approve(approval, false) }, enabled = !vm.busy) { Text("拒绝") }
             }
@@ -226,8 +228,10 @@ private fun ApprovalCard(vm: WorkspaceViewModel, approval: JSONObject) {
 
 @Composable
 private fun ProjectHeader(vm: WorkspaceViewModel, refresh: () -> Unit) {
-    Field(vm.project, { vm.project = it }, "电脑上的仓库路径", enabled = !vm.busy)
-    TextButton(onClick = refresh, enabled = !vm.busy && vm.project.isNotBlank()) { Text("刷新") }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) { Field(vm.project, { vm.project = it }, "电脑上的仓库路径", enabled = !vm.busy) }
+        IconButton(onClick = refresh, enabled = !vm.busy && vm.project.isNotBlank()) { DeckGlyph(DeckIcon.Sync, "刷新") }
+    }
 }
 
 @Composable
@@ -247,10 +251,22 @@ private fun Changes(vm: WorkspaceViewModel) {
                 val changes = state.optJSONArray("changes").objects().filter { it.getString("group") == group && it.getString("path").contains(filter, ignoreCase = true) }
                 if (changes.isNotEmpty()) item { Text("$label (${changes.size})", style = MaterialTheme.typography.titleSmall) }
                 items(changes, key = { group + it.getString("path") }) { change ->
-                    OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.loadDiff(change.getString("path"), group) }) {
-                        Column(Modifier.padding(12.dp)) { Text(change.getString("path")); Text(change.getString("status") + if (!change.isNull("additions")) "  +${change.optInt("additions")} −${change.optInt("deletions")}" else if (change.optBoolean("binary")) " · 二进制" else "", color = MaterialTheme.colorScheme.primary)
-                            change.string("oldPath").takeIf { it.isNotBlank() }?.let { Text("原路径：$it") }
-                            change.string("submodule").takeIf { it.startsWith("S") }?.let { Text("子模块：$it") }
+                    QuietCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.loadDiff(change.getString("path"), group) }) {
+                        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            DeckGlyph(DeckIcon.Code, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                val path = change.getString("path")
+                                Text(path.substringAfterLast('/'), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if ('/' in path) Text(path.substringBeforeLast('/'), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (!change.isNull("additions")) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("+${change.optInt("additions")}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                                    Text("−${change.optInt("deletions")}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+                                } else if (change.optBoolean("binary")) Text("二进制", style = MaterialTheme.typography.bodySmall)
+                                change.string("oldPath").takeIf { it.isNotBlank() }?.let { Text("原路径：$it", style = MaterialTheme.typography.bodySmall) }
+                                change.string("submodule").takeIf { it.startsWith("S") }?.let { Text("子模块：$it", style = MaterialTheme.typography.bodySmall) }
+                            }
+                            StatusLabel(change.getString("status"))
                         }
                     }
                 }
@@ -289,7 +305,7 @@ private fun Graph(vm: WorkspaceViewModel, showChat: () -> Unit) {
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
             ProjectHeader(vm) { vm.loadGraph() }
-            Row {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = vm.graphScope == "head", onClick = { vm.loadGraph(all = false) }, label = { Text("HEAD 历史") })
                 FilterChip(selected = vm.graphScope == "all", onClick = { vm.loadGraph(all = true) }, label = { Text("全部已知引用") })
             }

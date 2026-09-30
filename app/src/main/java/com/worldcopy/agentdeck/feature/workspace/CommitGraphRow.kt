@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -16,6 +17,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.worldcopy.agentdeck.ui.components.*
 import org.json.JSONObject
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -52,7 +54,7 @@ internal fun CommitGraphRow(commit: JSONObject, row: GraphRow, expanded: Boolean
                 }
                 Text(commitRelativeTime(commit.string("date"), now), maxLines = 1, style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.labelSmall)
+                DeckGlyph(DeckIcon.Chevron, modifier = Modifier.size(16.dp).then(if (expanded) Modifier else Modifier.rotate(-90f)))
             }
             if (expanded) Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("commit-detail-$oid"),
                 color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.medium) {

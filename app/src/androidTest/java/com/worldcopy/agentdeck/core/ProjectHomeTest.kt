@@ -79,7 +79,7 @@ class ProjectHomeTest {
         compose.onNodeWithTag("thread:${b.id}:same-id").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("测试 Mac 的缓存内容").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("测试 Ubuntu 的缓存内容").assertDoesNotExist()
-        compose.onNodeWithText("‹ 项目").performClick()
+        compose.onNodeWithContentDescription("返回项目").performClick()
         compose.onNodeWithTag("thread:${b.id}:same-id").assertDoesNotExist()
         compose.onNodeWithTag(project).performScrollTo().assertExists()
         compose.onNodeWithTag(project).performClick()
@@ -88,6 +88,6 @@ class ProjectHomeTest {
         assertEquals("/work/AgentDeck", app.workspaces[b.id]!!.project)
         assertNull(app.workspaces[b.id]!!.selected)
         compose.onNodeWithText("归档对话").assertDoesNotExist()
-        compose.onNodeWithText("‹ 项目").performClick()
+        compose.onNodeWithContentDescription("返回项目").performClick()
     }
 }

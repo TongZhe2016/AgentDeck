@@ -5,7 +5,10 @@ import android.media.MediaRecorder
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.*
+import com.worldcopy.agentdeck.ui.components.*
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -22,6 +25,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 @Composable
 fun MediaInput(vm: WorkspaceViewModel) {
     val context = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var photoFile by remember { mutableStateOf<File?>(null) }
@@ -60,16 +64,23 @@ fun MediaInput(vm: WorkspaceViewModel) {
         if (allowed) startRecording() else vm.reportError("允许麦克风权限后才能录音")
     }
     DisposableEffect(Unit) { onDispose { recorder?.run { runCatching { stop() }; release() }; recordingFile?.delete() } }
-    FlowRow {
-        TextButton(onClick = { pick.launch("image/*") }, enabled = !vm.busy && recorder == null) { Text("图片") }
-        TextButton(onClick = {
-            photoFile = File(context.cacheDir, "capture-${UUID.randomUUID()}.jpg")
-            runCatching { camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", photoFile!!)) }
-                .onFailure { vm.reportError("此设备没有可用的相机应用") }
-        }, enabled = !vm.busy && recorder == null) { Text("拍照") }
-        TextButton(onClick = { if (recorder != null) finishRecording() else permission.launch(Manifest.permission.RECORD_AUDIO) }, enabled = !vm.busy) {
-            Text(if (recorder == null) "语音转文字" else "停止并转写（最长 2 分钟）")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            TextButton(onClick = { menu = true }, enabled = !vm.busy && recorder == null) {
+                DeckGlyph(DeckIcon.Attachment, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("附件")
+            }
+            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("图片") }, onClick = { menu = false; pick.launch("image/*") })
+                DropdownMenuItem(text = { Text("拍照") }, onClick = {
+                    menu = false
+                    photoFile = File(context.cacheDir, "capture-${UUID.randomUUID()}.jpg")
+                    runCatching { camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", photoFile!!)) }
+                        .onFailure { vm.reportError("此设备没有可用的相机应用") }
+                })
+                DropdownMenuItem(text = { Text("语音转文字") }, onClick = { menu = false; permission.launch(Manifest.permission.RECORD_AUDIO) })
+            }
         }
+        if (recorder != null) TextButton(onClick = ::finishRecording, enabled = !vm.busy) { Text("停止并转写（最长 2 分钟）") }
     }
 }
 
