@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import com.worldcopy.agentdeck.ui.components.*
 import androidx.compose.ui.graphics.Color
@@ -53,9 +54,9 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
             }
         }
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        TabRow(selectedTabIndex = tab) {
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
             listOf("会话", "Changes", "Graph").forEachIndexed { index, title ->
-                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
+                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title, maxLines = 1) })
             }
         }
         when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else Chat(vm); 1 -> Changes(vm); 2 -> Graph(vm) { tab = 0 } }
@@ -237,7 +238,7 @@ private fun ProjectHeader(vm: WorkspaceViewModel, refresh: () -> Unit) {
 @Composable
 private fun Changes(vm: WorkspaceViewModel) {
     var filter by remember { mutableStateOf("") }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.testTag("git-changes"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { ProjectHeader(vm, vm::refreshGit) }
         item { Field(filter, { filter = it }, "按文件名或目录筛选") }
         vm.gitState?.let { state ->

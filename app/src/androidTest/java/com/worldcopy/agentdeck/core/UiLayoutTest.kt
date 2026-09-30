@@ -78,6 +78,7 @@ class UiLayoutTest {
         compose.onNodeWithText("语音转文字").assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText("Changes").performClick()
+        compose.onNodeWithTag("git-changes").performScrollToNode(hasText("ProjectsScreen.kt"))
         compose.onNodeWithText("ProjectsScreen.kt").performScrollTo().performClick()
         compose.waitUntil(10000) { app.workspaces[first.id]?.diff != null }
         capture("diff")
@@ -103,7 +104,8 @@ class UiLayoutTest {
     private fun capture(name: String) {
         compose.waitForIdle()
         val variant = InstrumentationRegistry.getArguments().getString("uiVariant") ?: "portrait"
-        compose.onAllNodes(isRoot()).onLast().captureToImage().asAndroidBitmap().let { bitmap ->
+        val surface = if (name == "diff") compose.onNode(isDialog()) else compose.onRoot()
+        surface.captureToImage().asAndroidBitmap().let { bitmap ->
             File(app.cacheDir, "ui-$variant-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
         }

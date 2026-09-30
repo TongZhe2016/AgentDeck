@@ -107,7 +107,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 600.dp
         Scaffold(topBar = {
-            TopAppBar(title = {
+            if (workspaceId == null) TopAppBar(title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Surface(Modifier.size(36.dp), shape = MaterialTheme.shapes.small, color = DeckNavy) {
                         Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null)
