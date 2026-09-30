@@ -21,7 +21,9 @@ npm start
 
 ## macOS 常驻运行
 
-从仓库根目录运行 `node scripts/install-macos-service.mjs` 查看版本、路径与启动方式；加入 `--install` 才会安装和启动。安装器构建服务并复制到 `~/.local/share/agentdeck/0.1.0/`，注册 `~/Library/LaunchAgents/com.worldcopy.agentdeck.plist`，由当前用户登录后的 launchd 管理。先停止占用 4317 的开发服务。
+从仓库根目录运行 `node scripts/install-macos-service.mjs` 查看版本、路径与启动方式；加入 `--install` 安装并启动服务与菜单栏 App。需要 Xcode Command Line Tools 的 Swift 编译器。App 位于 `~/Applications/AgentDeck Server.app`，提供状态、启动／停止、手机连接信息和日志入口；设计与构建见 [Mac App 指南](../macos/README.md)。
+
+安装器构建服务并复制到 `~/.local/share/agentdeck/0.1.0/`，注册 `~/Library/LaunchAgents/com.worldcopy.agentdeck.plist`，由当前用户登录后的 launchd 管理。菜单栏使用独立的 `com.worldcopy.agentdeck.manager.plist` 随登录启动，退出菜单栏不停止后台服务。先停止占用 4317 的开发服务。
 
 升级前让正在执行的任务结束，再重新运行安装器。配置和数据保留在 `~/.agentdeck`。停止服务：
 
@@ -29,7 +31,7 @@ npm start
 launchctl bootout "gui/$(id -u)/com.worldcopy.agentdeck"
 ```
 
-删除 LaunchAgents 中的对应 plist 可关闭后续自动启动；保留数据目录可供重新安装使用。日志为 `~/.agentdeck/service.log` 和 `service-error.log`。本次开发已验证安装器预览；未在用户登录项中自动安装。
+删除 LaunchAgents 中的对应 plist 可关闭后续自动启动；菜单栏的登录项也需删除其 manager plist。保留数据目录可供重新安装使用。日志为 `~/.agentdeck/service.log` 和 `service-error.log`。
 
 ## Ubuntu 常驻运行
 

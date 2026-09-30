@@ -69,6 +69,8 @@ AgentDeck/
 
 Android 当前 namespace 和 application ID 均为 `com.worldcopy.agentdeck`。当前包内为 `feature/projects`、`feature/hosts`、`feature/workspace`、`feature/media` 和 `core/ssh`、`core/network`、`core/storage`、`core/notifications`；工作台先集中承载会话与 Git 页面，出现实际拆分需要时再独立分包。
 
+`macos/` 为 SwiftUI／AppKit 菜单栏控制台，管理本机常驻服务和连接提示；不承载 Codex 执行逻辑。`scripts/build-macos-app.mjs` 构建本地 App，macOS 安装器同时部署 App 与 Node 服务。
+
 ## 3. 依赖与数据边界
 
 Android 页面经 ViewModel 调用数据层；SSH、网络和缓存由数据层协调。页面负责交互和呈现，电脑端负责执行归属、原生历史和真实 Git 查询。

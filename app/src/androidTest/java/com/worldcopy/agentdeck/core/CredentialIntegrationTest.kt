@@ -37,6 +37,24 @@ class CredentialIntegrationTest {
         val phase = args.getString("sshPhase")
         org.junit.Assume.assumeTrue("Requires explicit SSH integration parameters", phase != null)
         val store = HostStore(context)
+        if (phase == "existing-host") {
+            val original = store.hosts().first { it.id == args.getString("sshExistingHostId") }
+            val host = original.copy(username = args.getString("sshUser") ?: original.username,
+                trustedHostKey = args.getString("sshHostKey") ?: original.trustedHostKey)
+            SshConnection.connect(host, store.vault.get("password-${host.id}")?.toString(Charsets.UTF_8),
+                host.identityId?.let(store::keyPair)).use { ssh ->
+                val token = ssh.readServiceToken(host.serviceDirectory)
+                val api = com.worldcopy.agentdeck.core.network.HostApi(ssh.forward(host.servicePort), token)
+                try { kotlinx.coroutines.runBlocking {
+                    val health = api.get("health")
+                    assertEquals(1, health.getInt("protocol"))
+                    args.getString("sshPlatform")?.let { assertEquals(it, health.getString("platform")) }
+                    api.get("sessions").getJSONArray("data")
+                } } finally { api.close() }
+            }
+            if (args.getString("sshSaveChanges") == "true") store.saveHost(host)
+            return
+        }
         val fixture = args.getString("sshFixture") ?: "integration"
         val name = args.getString("sshName") ?: "本机 Mac · 开发测试"
         if (phase == "prepare" || phase == "prepare-import") {
