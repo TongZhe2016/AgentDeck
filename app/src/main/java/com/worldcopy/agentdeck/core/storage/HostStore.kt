@@ -53,12 +53,22 @@ class HostStore(context: Context) {
     @Synchronized
     fun createIdentity(name: String): SshIdentity {
         require(name.isNotBlank()) { "请填写密钥名称" }
-        val pair = IdentityCrypto.generate()
+        return saveIdentity(name, IdentityCrypto.generate())
+    }
+
+    @Synchronized
+    fun importIdentity(name: String, privateText: String, publicText: String = "", passphrase: String = ""): SshIdentity {
+        require(name.isNotBlank()) { "请填写密钥名称" }
+        return saveIdentity(name, IdentityCrypto.importKey(privateText, publicText, passphrase))
+    }
+
+    private fun saveIdentity(name: String, pair: KeyPair): SshIdentity {
         val id = UUID.randomUUID().toString()
         vault.put("key-$id", pair.private.encoded)
         val identity = SshIdentity(id, name.trim(), IdentityCrypto.publicLine(pair))
         replace("identities", id, JSONObject().put("id", id).put("name", identity.name)
-            .put("publicKey", identity.publicKey).put("encodedPublic", Base64.getEncoder().encodeToString(pair.public.encoded)))
+            .put("publicKey", identity.publicKey).put("algorithm", pair.private.algorithm)
+            .put("encodedPublic", Base64.getEncoder().encodeToString(pair.public.encoded)))
         return identity
     }
 
@@ -67,7 +77,7 @@ class HostStore(context: Context) {
         val record = objects("identities").firstOrNull { it.getString("id") == id }
             ?: error("密钥已删除，请重新选择")
         return IdentityCrypto.restore(vault.get("key-$id") ?: error("私钥不可用，请创建新密钥"),
-            Base64.getDecoder().decode(record.getString("encodedPublic")))
+            Base64.getDecoder().decode(record.getString("encodedPublic")), record.optString("algorithm", "Ed25519"))
     }
 
     @Synchronized

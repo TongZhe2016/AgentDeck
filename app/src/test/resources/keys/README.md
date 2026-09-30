@@ -1,0 +1,1 @@
+These are synthetic, publicly known SSH keys used only to test import and signing. Never authorize them for normal access. Encrypted fixtures use the test passphrase `fixture-passphrase`. Generated with OpenSSH ssh-keygen.

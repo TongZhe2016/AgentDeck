@@ -5,6 +5,7 @@
 `CredentialIntegrationTest` 验证 Android Keystore 加密、密钥恢复与删除。其 `sshIntegration` 需要显式 `sshPhase`：
 
 1. `prepare`：在模拟器中创建测试密钥，公钥写入应用 cache 的 `integration.pub`，身份 ID 写入 `integration-id`。
+   `prepare-import` 使用应用 cache 中的 `<sshFixture>-private` 导入独立测试私钥；可传测试用 `sshKeyPassphrase`，后续 `connect`／`cleanup` 步骤相同。仅使用临时测试密钥。
 2. 用 `adb exec-out run-as com.worldcopy.agentdeck cat cache/integration.pub` 读取公钥，在自己的测试账号授权。记录唯一注释，测试结束只删除该条授权。
 3. `connect`：通过参数 `sshUser`、`sshHostKey`（OpenSSH 算法与 base64 公钥）核对并登录本机 `10.0.2.2:22`。自动通过 SSH 读取服务令牌，验证 SSH 转发、健康与原生会话列表。服务需已启动；自定义数据目录通过 `serviceDirectory` 指定，令牌不经测试参数传入。
 4. `configure`：以相同参数保存“本机 Mac · 开发测试”主机，供 UI 测试使用。随后运行 `auto-token` 验证无缓存时自动认证、重连覆盖过期缓存；可用 `tokenFixtureDir` 指向独立测试目录，其中 `token` 内容为 `fixture-token`，`empty/token` 为空，`missing/token` 不存在，验证自定义目录读取和错误提示。

@@ -34,11 +34,13 @@ android {
         compose = true
     }
     packaging.resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+    sourceSets.getByName("androidTest").assets.srcDir("src/test/resources")
 }
 
 dependencies {
     implementation(libs.sshj)
     implementation(libs.bouncycastle)
+    implementation(libs.bouncycastle.pem)
     implementation(libs.slf4j.nop)
     implementation(libs.okhttp)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

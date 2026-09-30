@@ -39,8 +39,11 @@ class CredentialIntegrationTest {
         val store = HostStore(context)
         val fixture = args.getString("sshFixture") ?: "integration"
         val name = args.getString("sshName") ?: "本机 Mac · 开发测试"
-        if (phase == "prepare") {
-            val identity = store.createIdentity(name)
+        if (phase == "prepare" || phase == "prepare-import") {
+            val identity = if (phase == "prepare-import") {
+                store.importIdentity(name, File(context.cacheDir, "$fixture-private").readText(),
+                    passphrase = args.getString("sshKeyPassphrase") ?: "")
+            } else store.createIdentity(name)
             File(context.cacheDir, "$fixture.pub").writeText(identity.publicKey + "\n")
             File(context.cacheDir, "$fixture-id").writeText(identity.id)
         } else {
@@ -50,6 +53,7 @@ class CredentialIntegrationTest {
                 store.deleteIdentity(id)
                 File(context.cacheDir, "$fixture-id").delete()
                 File(context.cacheDir, "$fixture.pub").delete()
+                File(context.cacheDir, "$fixture-private").delete()
                 return
             }
             val host = Host(name = name, address = args.getString("sshHost") ?: "10.0.2.2",

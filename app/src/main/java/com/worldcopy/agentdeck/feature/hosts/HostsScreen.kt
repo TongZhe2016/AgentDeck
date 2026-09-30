@@ -40,7 +40,7 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
         if (vm.hosts.isEmpty()) item {
             OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp)) {
                 Text("连接第一台电脑", style = MaterialTheme.typography.titleMedium)
-                Text("可以使用账号密码，或先在「密钥」中创建 Ed25519 密钥，将公钥配置到电脑。")
+                Text("可以使用账号密码，或在「密钥」中创建、导入 SSH 密钥后登录。")
             } }
         }
         items(vm.hosts, key = { it.id }) { host ->
@@ -109,7 +109,7 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
                 OutlinedTextField(password, { password = it }, label = { Text(if (original == null) "密码" else "新密码（留空保留）") },
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
             } else {
-                if (identities.isEmpty()) Text("请先在密钥页创建密钥。")
+                if (identities.isEmpty()) Text("请先在密钥页创建或导入密钥。")
                 identities.forEach { key -> FilterChip(selected = identity == key.id, onClick = { identity = key.id }, label = { Text(key.name) }) }
             }
             HorizontalDivider()
@@ -139,6 +139,7 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
 @Composable
 fun KeysScreen(vm: HostsViewModel) {
     var creating by remember { mutableStateOf(false) }
+    var importing by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf<SshIdentity?>(null) }
     var deleting by remember { mutableStateOf<SshIdentity?>(null) }
     var exportKey by remember { mutableStateOf<SshIdentity?>(null) }
@@ -158,6 +159,7 @@ fun KeysScreen(vm: HostsViewModel) {
             Text("登录密钥", style = MaterialTheme.typography.headlineSmall)
             Text("私钥加密保存在此设备。将公钥配置到电脑后，即可选择密钥登录。")
             Button(onClick = { creating = true }, enabled = !vm.busy) { Text("创建 Ed25519 密钥") }
+            OutlinedButton(onClick = { importing = true }, enabled = !vm.busy) { Text("导入已有密钥") }
         }
         items(vm.identities, key = { it.id }) { key ->
             OutlinedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -175,6 +177,7 @@ fun KeysScreen(vm: HostsViewModel) {
             } }
         }
     }
+    if (importing) KeyImportDialog(vm) { importing = false }
     if (creating || naming != null) NameDialog(naming?.name ?: "", { creating = false; naming = null }) { name ->
         if (creating) vm.createKey(name) else naming?.let { vm.renameKey(it.id, name) }
         creating = false; naming = null

@@ -55,6 +55,13 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun createKey(name: String) = work { withContext(Dispatchers.IO) { store.createIdentity(name) } }
+    fun importKey(name: String, privateText: String, publicText: String, passphrase: String, result: (String?) -> Unit) = work {
+        try {
+            withContext(Dispatchers.IO) { store.importIdentity(name, privateText, publicText, passphrase) }
+            result(null)
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { result(e.message ?: "导入失败，请检查密钥文件") }
+    }
     fun renameKey(id: String, name: String) = work { withContext(Dispatchers.IO) { store.renameIdentity(id, name) } }
     fun deleteKey(identity: SshIdentity) = work {
         val affected = hosts.filter { it.identityId == identity.id }.map { it.id }.toSet()
