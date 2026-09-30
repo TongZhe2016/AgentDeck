@@ -27,6 +27,7 @@ Android 工程位于根目录，应用模块为 `app/`，application ID 为 `com
 - [实施路线](docs/roadmap.md)：近期任务和阶段退出条件。
 - [Android 界面设计](docs/design/android-ui.md)：品牌主题、页面层级与手机／宽屏布局。
 - [Mac 菜单栏 App](macos/README.md)：本机后台服务、连接信息与日志控制台。
+- [服务部署记录](docs/validation/server-deployment.md)：本机 Mac 与五台 Ubuntu 的安装和 App 连接验证。
 - [Wi-Fi ADB 调试](docs/development/wireless-adb.md)：手机配对、连接、验证和重连。
 - [贡献指南](CONTRIBUTING.md)：改动、验证和提交方式。
 - [Agent 工作约定](AGENTS.md)：自动化协作者的项目范围。
