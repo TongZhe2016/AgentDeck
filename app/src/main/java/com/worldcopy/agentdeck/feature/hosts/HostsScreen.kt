@@ -32,6 +32,7 @@ import com.worldcopy.agentdeck.core.model.SshIdentity
 @Composable
 fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
     var editing by remember { mutableStateOf<Host?>(null) }
+    var cloning by remember { mutableStateOf<Host?>(null) }
     var adding by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Host?>(null) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(20.dp)) {
@@ -60,6 +61,7 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
                             IconButton(onClick = { menu = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.More, "${host.name}的主机操作") }
                             DropdownMenu(menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; editing = host })
+                                DropdownMenuItem(text = { Text("克隆") }, onClick = { menu = false; cloning = host })
                                 DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; deleting = host })
                             }
                         }
@@ -78,9 +80,14 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
             }
         }
     }
-    if (adding || editing != null) HostEditor(editing, vm.identities, vm.busy,
-        dismiss = { adding = false; editing = null },
-        save = { host, password -> vm.save(host, password) { adding = false; editing = null } })
+    fun dismissEditor() { adding = false; editing = null; cloning = null }
+    if (adding || editing != null || cloning != null) HostEditor(editing ?: cloning, vm.identities, vm.busy,
+        cloning = cloning != null, dismiss = ::dismissEditor,
+        save = { host, password ->
+            val source = cloning
+            if (source != null) vm.cloneHost(source, host, password, ::dismissEditor)
+            else vm.save(host, password, ::dismissEditor)
+        })
     deleting?.let { host -> ConfirmDialog("删除 ${host.name}？", "删除手机上的主机配置和凭据。", { deleting = null }) {
         vm.deleteHost(host.id); deleting = null
     } }
@@ -102,9 +109,9 @@ fun HostIdentityDialog(vm: HostsViewModel) {
 }
 
 @Composable
-private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boolean, dismiss: () -> Unit,
+private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boolean, cloning: Boolean = false, dismiss: () -> Unit,
                        save: (Host, String?) -> Unit) {
-    var name by remember { mutableStateOf(original?.name ?: "") }
+    var name by remember { mutableStateOf(original?.name?.let { if (cloning) "$it（克隆）" else it } ?: "") }
     var address by remember { mutableStateOf(original?.address ?: "") }
     var port by remember { mutableStateOf(original?.port?.toString() ?: "22") }
     var username by remember { mutableStateOf(original?.username ?: "") }
@@ -115,7 +122,7 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
     var serviceDirectory by remember { mutableStateOf(original?.serviceDirectory ?: "~/.agentdeck") }
     var servicePort by remember { mutableStateOf(original?.servicePort?.toString() ?: "4317") }
     var error by remember { mutableStateOf<String?>(null) }
-    AlertDialog(onDismissRequest = { if (!busy) dismiss() }, title = { Text(if (original == null) "添加主机" else "编辑主机") },
+    AlertDialog(onDismissRequest = { if (!busy) dismiss() }, title = { Text(if (cloning) "克隆主机" else if (original == null) "添加主机" else "编辑主机") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionLabel("连接信息")
             Field(name, { name = it }, "主机名称")
@@ -127,7 +134,9 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
                 FilterChip(selected = method == AuthMethod.KEY, onClick = { method = AuthMethod.KEY }, label = { Text("密钥") })
             }
             if (method == AuthMethod.PASSWORD) {
-                OutlinedTextField(password, { password = it }, label = { Text(if (original == null) "密码" else "新密码（留空保留）") },
+                OutlinedTextField(password, { password = it }, label = { Text(
+                    if (cloning && original?.authMethod == AuthMethod.PASSWORD) "新密码（留空沿用）"
+                    else if (original?.authMethod != AuthMethod.PASSWORD) "密码" else "新密码（留空保留）") },
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
             } else {
                 if (identities.isEmpty()) Text("请先在密钥页创建或导入密钥。")

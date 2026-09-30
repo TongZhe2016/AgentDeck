@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.worldcopy.agentdeck.core.model.Host
+import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.model.SshIdentity
 import com.worldcopy.agentdeck.core.ssh.HostKeyConfirmation
 import com.worldcopy.agentdeck.core.ssh.SshConnection
@@ -51,6 +52,19 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
             store.vault.delete("token-${host.id}")
         }
         statuses = statuses - host.id
+        done()
+    }
+
+    fun cloneHost(source: Host, configuration: Host, password: String?, done: () -> Unit) = work {
+        withContext(Dispatchers.IO) {
+            val cloned = configuration.copy(id = java.util.UUID.randomUUID().toString(), trustedHostKey = null)
+            val clonedPassword = if (cloned.authMethod == AuthMethod.PASSWORD) {
+                password ?: source.takeIf { it.authMethod == AuthMethod.PASSWORD }
+                    ?.let { store.vault.get("password-${it.id}")?.toString(Charsets.UTF_8) }
+                    ?: error("请填写密码")
+            } else null
+            store.saveHost(cloned, clonedPassword)
+        }
         done()
     }
 
