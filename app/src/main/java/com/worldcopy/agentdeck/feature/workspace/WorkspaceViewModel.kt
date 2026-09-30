@@ -236,7 +236,15 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 } catch (e: CancellationException) { throw e }
                 catch (failure: Exception) {
                     if (failure is com.worldcopy.agentdeck.core.network.HostApiAuthException) {
-                        connection = "服务认证失败，已暂停重连"; error = failure.message; break
+                        try {
+                            api?.close(); api = reopen!!.invoke()
+                            api!!.get("health") // Verify the freshly read token before resuming the existing event cursor.
+                            connection = "在线"
+                            continue
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            connection = "服务认证失败，已暂停重连"; error = e.message; break
+                        }
                     }
                     connection = "连接中断，等待恢复"
                     delay(backoff + kotlin.random.Random.nextLong(300)); backoff = (backoff * 2).coerceAtMost(30_000)

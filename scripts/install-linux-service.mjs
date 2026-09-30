@@ -58,5 +58,5 @@ cpSync(join(repo, 'host-service/dist/src'), join(destination, 'src'), { recursiv
 writeFileSync(join(destination, 'package.json'), JSON.stringify({ type: 'module', version }));
 execFileSync('systemctl', ['--user', 'enable', '--now', 'agentdeck.service'], { stdio: 'inherit' });
 const linger = execFileSync('loginctl', ['show-user', String(process.getuid()), '-p', 'Linger', '--value'], { encoding: 'utf8' }).trim();
-console.log('服务已启动。将 ~/.agentdeck/token 填入手机主机设置。日志：journalctl --user -u agentdeck.service');
+console.log('服务已启动。手机配置 SSH 后会自动获取服务令牌。日志：journalctl --user -u agentdeck.service');
 if (linger !== 'yes') console.log('当前 Linger 未启用；最后一个登录会话结束后用户服务可能停止。需要无人登录时运行，请执行 loginctl enable-linger（可能需要管理员授权）。');

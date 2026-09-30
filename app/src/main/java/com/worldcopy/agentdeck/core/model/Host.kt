@@ -14,6 +14,7 @@ data class Host(
     val identityId: String? = null,
     val trustedHostKey: String? = null,
     val servicePort: Int = 4317,
+    val serviceDirectory: String = "~/.agentdeck",
 ) {
     fun validate() {
         require(name.isNotBlank()) { "请填写主机名称" }

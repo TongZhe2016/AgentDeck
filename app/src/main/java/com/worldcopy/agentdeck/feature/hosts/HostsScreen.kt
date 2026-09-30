@@ -60,7 +60,7 @@ fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
     }
     if (adding || editing != null) HostEditor(editing, vm.identities, vm.busy,
         dismiss = { adding = false; editing = null },
-        save = { host, password, token -> vm.save(host, password, token) { adding = false; editing = null } })
+        save = { host, password -> vm.save(host, password) { adding = false; editing = null } })
     deleting?.let { host -> ConfirmDialog("删除 ${host.name}？", "删除手机上的主机配置和凭据。", { deleting = null }) {
         vm.deleteHost(host.id); deleting = null
     } }
@@ -83,7 +83,7 @@ fun HostIdentityDialog(vm: HostsViewModel) {
 
 @Composable
 private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boolean, dismiss: () -> Unit,
-                       save: (Host, String?, String?) -> Unit) {
+                       save: (Host, String?) -> Unit) {
     var name by remember { mutableStateOf(original?.name ?: "") }
     var address by remember { mutableStateOf(original?.address ?: "") }
     var port by remember { mutableStateOf(original?.port?.toString() ?: "22") }
@@ -91,7 +91,8 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
     var method by remember { mutableStateOf(original?.authMethod ?: AuthMethod.PASSWORD) }
     var identity by remember { mutableStateOf(original?.identityId ?: identities.firstOrNull()?.id) }
     var password by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
+    var advanced by remember { mutableStateOf(false) }
+    var serviceDirectory by remember { mutableStateOf(original?.serviceDirectory ?: "~/.agentdeck") }
     var servicePort by remember { mutableStateOf(original?.servicePort?.toString() ?: "4317") }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = { if (!busy) dismiss() }, title = { Text(if (original == null) "添加主机" else "编辑主机") },
@@ -112,11 +113,13 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
                 identities.forEach { key -> FilterChip(selected = identity == key.id, onClick = { identity = key.id }, label = { Text(key.name) }) }
             }
             HorizontalDivider()
-            Text("电脑端服务", style = MaterialTheme.typography.titleSmall)
-            Field(servicePort, { servicePort = it }, "服务端口", number = true)
-            OutlinedTextField(token, { token = it }, label = { Text("服务令牌（留空保留）") },
-                visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-            Text("SSH 登录可单独测试；工作台需要在电脑上启动 AgentDeck 服务。", style = MaterialTheme.typography.bodySmall)
+            Text("通过 SSH 自动配置电脑服务。请先在电脑上安装并启动 AgentDeck。", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起高级服务设置" else "高级服务设置") }
+            if (advanced) {
+                Field(servicePort, { servicePort = it }, "服务端口", number = true)
+                Field(serviceDirectory, { serviceDirectory = it }, "服务数据目录")
+                Text("默认 ~/.agentdeck；自定义安装时填写 AGENTDECK_DATA_DIR 对应目录。", style = MaterialTheme.typography.bodySmall)
+            }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } },
         confirmButton = { TextButton(enabled = !busy, onClick = {
@@ -125,10 +128,10 @@ private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boo
                     port = port.toIntOrNull() ?: 0, username = username.trim(), authMethod = method,
                     identityId = if (method == AuthMethod.KEY) identity else null,
                     trustedHostKey = original?.takeIf { it.address == address.trim() && it.port.toString() == port }?.trustedHostKey,
-                    servicePort = servicePort.toIntOrNull() ?: 0)
+                    servicePort = servicePort.toIntOrNull() ?: 0, serviceDirectory = serviceDirectory.trim().ifBlank { "~/.agentdeck" })
                 host.validate()
                 require(method != AuthMethod.PASSWORD || password.isNotEmpty() || original?.authMethod == AuthMethod.PASSWORD) { "请填写密码" }
-                save(host, password.takeIf { it.isNotEmpty() }, token.takeIf { it.isNotBlank() })
+                save(host, password.takeIf { it.isNotEmpty() })
             } catch (e: Exception) { error = e.message }
         }) { Text("保存") } }, dismissButton = { TextButton(onClick = dismiss, enabled = !busy) { Text("取消") } })
 }

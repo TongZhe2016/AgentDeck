@@ -64,7 +64,7 @@ class ProjectHomeTest {
                 JSONObject().put("id", "message").put("role", "Agent").put("text", "${host.name} 的缓存内容")
             ))).toString())
             compose.waitUntil(5000) { !app.hosts.busy }
-            compose.runOnUiThread { app.hosts.save(host, null, null) {} }
+            compose.runOnUiThread { app.hosts.save(host, null) {} }
             compose.waitUntil(5000) { app.workspaces[host.id]?.projectSessions?.size == sessions.size }
         }
         compose.onNodeWithTag("thread:${a.id}:same-id").assertDoesNotExist()

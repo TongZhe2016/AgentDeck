@@ -16,7 +16,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class EventCursorExpired : IOException("事件游标已失效")
-class HostApiAuthException : IOException("电脑服务令牌无效，请检查主机设置")
+class HostApiAuthException : IOException("电脑服务认证失败，请重新连接；若仍失败，请核对高级设置中的服务目录和端口")
 
 class HostApi(private val port: Int, private val token: String) {
     private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS).build()

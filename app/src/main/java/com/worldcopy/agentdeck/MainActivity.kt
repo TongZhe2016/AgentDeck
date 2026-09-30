@@ -124,9 +124,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
                 if (vm.statuses[host.id] != "SSH 已连接") workspace.openOffline(host.id)
                 else {
                     val port = vm.localPort(host.id)
-                    val token = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        vm.store.vault.get("token-${host.id}")?.toString(Charsets.UTF_8)
-                    } ?: error("请在主机设置中填写电脑服务令牌")
+                    val token = vm.serviceToken(host.id)
                     workspace.connect(host.id, port, token) { vm.reconnectService(host.id) }
                 }
                 fromProjects = false

@@ -45,4 +45,4 @@ execFileSync('plutil', ['-lint', plist], { stdio: 'inherit' });
 const domain = `gui/${process.getuid()}`;
 try { execFileSync('launchctl', ['bootout', `${domain}/com.worldcopy.agentdeck`], { stdio: 'ignore' }); } catch {}
 execFileSync('launchctl', ['bootstrap', domain, plist], { stdio: 'inherit' });
-console.log('服务已启动。将 token 文件内容填入手机主机设置。API key 仍由电脑端 Codex 配置管理。');
+console.log('服务已启动。手机配置 SSH 后会自动获取服务令牌。API key 仍由电脑端 Codex 配置管理。');

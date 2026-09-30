@@ -54,14 +54,38 @@ class CredentialIntegrationTest {
             }
             val host = Host(name = name, address = args.getString("sshHost") ?: "10.0.2.2",
                 port = (args.getString("sshPort") ?: "22").toInt(), username = args.getString("sshUser")!!,
-                identityId = id, trustedHostKey = args.getString("sshHostKey"))
+                identityId = id, trustedHostKey = args.getString("sshHostKey"),
+                serviceDirectory = args.getString("serviceDirectory") ?: "~/.agentdeck")
             if (phase == "configure") {
                 val existing = store.hosts().firstOrNull { it.name == name }
-                store.saveHost(host.copy(id = existing?.id ?: host.id, name = name), token = args.getString("serviceToken"))
+                store.saveHost(host.copy(id = existing?.id ?: host.id, name = name))
+            } else if (phase == "auto-token") {
+                val saved = store.hosts().first { it.name == name }
+                store.vault.delete("token-${saved.id}")
+                val app = context.applicationContext as com.worldcopy.agentdeck.AgentDeckApplication
+                kotlinx.coroutines.runBlocking {
+                    val api = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { app.hosts.reconnectService(saved.id) }
+                    try { assertEquals(1, api.get("health").getInt("protocol")) } finally { api.close() }
+                    assertNotNull(store.vault.get("token-${saved.id}"))
+                    store.vault.put("token-${saved.id}", "stale-fixture-token".toByteArray())
+                    val reconnected = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { app.hosts.reconnectService(saved.id) }
+                    try { assertEquals(1, reconnected.get("health").getInt("protocol")) } finally { reconnected.close() }
+                    assertNotEquals("stale-fixture-token", store.vault.get("token-${saved.id}")?.toString(Charsets.UTF_8))
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { app.hosts.disconnectAll() }
+                }
+                SshConnection.connect(host, null, store.keyPair(id)).use { ssh ->
+                    args.getString("tokenFixtureDir")?.let { directory ->
+                        assertEquals("fixture-token", ssh.readServiceToken(directory))
+                        for (missing in listOf("$directory/missing", "$directory/empty")) {
+                            try { ssh.readServiceToken(missing); fail("Missing or empty token must fail") }
+                            catch (e: IllegalStateException) { assertTrue(e.message!!.contains("电脑服务令牌")) }
+                        }
+                    }
+                }
             } else {
                 SshConnection.connect(host, null, store.keyPair(id)).use { ssh ->
                     assertTrue(ssh.connected)
-                    args.getString("serviceToken")?.let { token ->
+                    ssh.readServiceToken(host.serviceDirectory).let { token ->
                         val api = com.worldcopy.agentdeck.core.network.HostApi(ssh.forward(4317), token)
                         kotlinx.coroutines.runBlocking {
                             assertEquals(1, api.get("health").getInt("protocol"))

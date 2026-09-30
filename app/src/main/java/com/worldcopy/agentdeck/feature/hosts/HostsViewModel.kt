@@ -43,11 +43,12 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun save(host: Host, password: String?, token: String?, done: () -> Unit) = work {
+    fun save(host: Host, password: String?, done: () -> Unit) = work {
         stopWorkspace(host.id)
         withContext(Dispatchers.IO) {
             closeConnection(host.id)
-            store.saveHost(host, password, token)
+            store.saveHost(host, password)
+            store.vault.delete("token-${host.id}")
         }
         statuses = statuses - host.id
         done()
@@ -114,8 +115,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
                 if (workspace.online) { workspace.refreshSessions(); continue }
                 if (connections[target.id]?.connected != true) connectHost(target)
                 if (confirmation != null) break
-                val token = withContext(Dispatchers.IO) { store.vault.get("token-${target.id}")?.toString(Charsets.UTF_8) }
-                    ?: error("请在主机设置中填写电脑服务令牌")
+                val token = serviceToken(target.id)
                 workspace.connect(target.id, localPort(target.id), token) { reconnectService(target.id) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { workspace.reportError(e.message ?: "同步失败") }
@@ -125,6 +125,14 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     fun localPort(hostId: String): Int {
         check(connections[hostId]?.connected == true) { "请先连接此主机" }
         return ports[hostId] ?: error("SSH 隧道未建立")
+    }
+
+    suspend fun serviceToken(id: String): String = withContext(Dispatchers.IO) {
+        val host = hosts.firstOrNull { it.id == id } ?: error("主机已删除")
+        val ssh = connections[id]?.takeIf { it.connected } ?: error("请先连接此主机")
+        // Read through the authenticated SSH account on every service connection, including reconnects.
+        store.vault.delete("token-$id")
+        ssh.readServiceToken(host.serviceDirectory).also { store.vault.put("token-$id", it.toByteArray()) }
     }
 
     suspend fun reconnectService(id: String): com.worldcopy.agentdeck.core.network.HostApi {
@@ -139,8 +147,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
                 ssh.forward(host.servicePort).also { ports[id] = it }
             }
             statuses = statuses + (id to "SSH 已连接")
-            val token = withContext(Dispatchers.IO) { store.vault.get("token-$id")?.toString(Charsets.UTF_8) }
-                ?: error("请填写电脑服务令牌")
+            val token = serviceToken(id)
             return com.worldcopy.agentdeck.core.network.HostApi(port, token)
         } catch (e: HostKeyConfirmation) {
             confirmation = host to e

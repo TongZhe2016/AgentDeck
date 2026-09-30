@@ -1,6 +1,6 @@
 # AgentDeck protocol 1
 
-HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Authorization: Bearer <电脑服务令牌>`。电脑服务监听 `127.0.0.1:4317`。错误响应为 `{ "error": "可显示的原因" }`。
+HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Authorization: Bearer <电脑服务令牌>`。电脑服务监听 `127.0.0.1:4317`。Android 在 SSH 认证成功后读取服务数据目录下的 `token` 文件（默认 `~/.agentdeck/token`），每次服务连接／重连重新获取并加密缓存。HTTP 与 SSE 请求仍由客户端自动携带令牌，SSE 本身不承担身份认证。错误响应为 `{ "error": "可显示的原因" }`。
 
 - `GET /v1/health`：协议版本、服务版本和平台。
 - `GET /v1/snapshot`：最近执行、待处理请求、当前事件游标。

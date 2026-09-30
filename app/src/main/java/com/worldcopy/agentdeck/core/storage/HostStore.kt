@@ -23,7 +23,7 @@ class HostStore(context: Context) {
         Host(it.getString("id"), it.getString("name"), it.getString("address"), it.getInt("port"),
             it.getString("username"), AuthMethod.valueOf(it.getString("authMethod")),
             it.optString("identityId").ifBlank { null }, it.optString("trustedHostKey").ifBlank { null },
-            it.optInt("servicePort", 4317))
+            it.optInt("servicePort", 4317), it.optString("serviceDirectory").ifBlank { "~/.agentdeck" })
     }
 
     @Synchronized
@@ -39,7 +39,7 @@ class HostStore(context: Context) {
         val obj = JSONObject().put("id", host.id).put("name", host.name).put("address", host.address)
             .put("port", host.port).put("username", host.username).put("authMethod", host.authMethod.name)
             .put("identityId", host.identityId ?: "").put("trustedHostKey", host.trustedHostKey ?: "")
-            .put("servicePort", host.servicePort)
+            .put("servicePort", host.servicePort).put("serviceDirectory", host.serviceDirectory)
         replace("hosts", host.id, obj)
     }
 

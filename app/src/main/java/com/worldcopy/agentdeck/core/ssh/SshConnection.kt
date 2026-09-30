@@ -15,6 +15,7 @@ import java.security.KeyPair
 import java.security.MessageDigest
 import java.security.PublicKey
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class HostKeyConfirmation(val hostKey: String, val fingerprint: String, val changed: Boolean) :
@@ -32,6 +33,24 @@ class SshConnection private constructor(private val client: SSHClient) : Closeab
             try { forwarder.listen() } catch (_: java.io.IOException) { socket.close() }
         }
         return socket.localPort
+    }
+
+    fun readServiceToken(directory: String = "~/.agentdeck"): String {
+        fun quote(value: String) = "'" + value.replace("'", "'\"'\"'") + "'"
+        val path = directory.ifBlank { "~/.agentdeck" }.trimEnd('/') + "/token"
+        val argument = when {
+            path.startsWith("~/") -> "\"\$HOME\"/" + quote(path.removePrefix("~/"))
+            path.startsWith("/") -> quote(path)
+            else -> "\"\$HOME\"/" + quote(path)
+        }
+        return client.startSession().use { session ->
+            val command = session.exec("cat $argument")
+            val token = command.inputStream.bufferedReader().use { it.readText().trim() }
+            command.join(15, TimeUnit.SECONDS)
+            check(command.exitStatus == 0) { "无法读取电脑服务令牌。请先在此 SSH 账号下启动 AgentDeck；自定义安装请核对高级设置中的服务目录。" }
+            check(token.isNotEmpty()) { "电脑服务令牌文件为空，请检查电脑上的 AgentDeck 服务。" }
+            token
+        }
     }
 
     override fun close() {
