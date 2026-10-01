@@ -99,11 +99,11 @@ fun HostIdentityDialog(vm: HostsViewModel) {
         AlertDialog(onDismissRequest = vm::dismissConfirmation,
             title = { Text(if (key.changed) "主机身份发生变化" else "确认主机身份") },
             text = { SelectionContainer { Column {
-                Text("${host.address}:${host.port}\n${key.hostKey.substringBefore(' ')}")
+                Text("${host.name}\n${host.address}:${host.port}\n${key.hostKey.substringBefore(' ')}")
                 Text(key.fingerprint)
                 Text("请与电脑上的 SSH 主机公钥核对后再信任。")
             } } },
-            confirmButton = { TextButton(onClick = vm::trustHost) { Text("已核对，信任并连接") } },
+            confirmButton = { TextButton(onClick = vm::trustHost, enabled = !vm.busy) { Text("已核对，信任并连接") } },
             dismissButton = { TextButton(onClick = vm::dismissConfirmation) { Text("取消") } })
     }
 }

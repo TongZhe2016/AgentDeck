@@ -26,7 +26,8 @@ fun ProjectsScreen(hosts: List<Host>, workspaces: Map<String, WorkspaceViewModel
                    open: (ProjectGroup, JSONObject?) -> Unit) {
     val groups = groupProjects(hosts, workspaces.mapValues { it.value.projectSessions })
     var showSync by remember { mutableStateOf(false) }
-    ProjectList(groups, busyHosts = workspaces.filterValues { it.busy }.keys, open = open,
+    ProjectList(groups, busyHosts = workspaces.filterValues { it.busy }.keys +
+        if (connecting) hosts.map { it.id }.toSet() else emptySet(), open = open,
         header = {
             PageHeading("项目", "${groups.size} 个项目 · ${hosts.size} 台主机") {
                 FilledTonalButton(onClick = { sync(null) }, enabled = !connecting && workspaces.values.none { it.busy } && hosts.isNotEmpty()) {

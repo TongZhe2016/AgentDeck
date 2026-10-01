@@ -14,6 +14,7 @@ import com.worldcopy.agentdeck.core.ssh.SshConnection
 import com.worldcopy.agentdeck.core.storage.HostStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.userauth.UserAuthException
@@ -25,13 +26,17 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     var busy by mutableStateOf(false); private set
     var message by mutableStateOf<String?>(null); private set
     var statuses by mutableStateOf<Map<String, String>>(emptyMap()); private set
-    var confirmation by mutableStateOf<Pair<Host, HostKeyConfirmation>?>(null); private set
+    private var confirmations by mutableStateOf<List<Pair<Host, HostKeyConfirmation>>>(emptyList())
+    val confirmation get() = confirmations.firstOrNull()
     private val connections = mutableMapOf<String, SshConnection>()
     private val ports = mutableMapOf<String, Int>()
 
     private fun refresh() { hosts = store.hosts(); identities = store.identities() }
     fun dismissMessage() { message = null }
-    fun dismissConfirmation() { confirmation = null }
+    fun dismissConfirmation() { confirmations = confirmations.drop(1) }
+    private fun requestConfirmation(host: Host, key: HostKeyConfirmation) {
+        confirmations = confirmations.filterNot { it.first.id == host.id } + (host to key)
+    }
 
     fun work(action: suspend () -> Unit) {
         if (busy) return
@@ -94,11 +99,12 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun trustHost() {
         val (host, key) = confirmation ?: return
-        confirmation = null
+        if (busy) return
+        dismissConfirmation()
         work {
             val trusted = host.copy(trustedHostKey = key.hostKey)
             withContext(Dispatchers.IO) { store.saveHost(trusted) }
-            connectHost(trusted)
+            syncHosts(listOf(trusted))
         }
     }
 
@@ -117,7 +123,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
             }
             statuses = statuses + (host.id to "SSH 已连接")
         } catch (e: HostKeyConfirmation) {
-            confirmation = host to e
+            requestConfirmation(host, e)
             statuses = statuses + (host.id to "等待核对主机身份")
         } catch (e: Exception) {
             statuses = statuses + (host.id to "连接失败")
@@ -127,15 +133,23 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncProjects(host: Host? = null) = work {
+        syncHosts(host?.let { listOf(it) } ?: hosts)
+    }
+
+    private suspend fun syncHosts(targets: List<Host>) {
         val app = getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication
-        for (target in host?.let { listOf(it) } ?: hosts) {
+        for (target in targets) {
             val workspace = app.workspace(target.id)
+            if (workspace.connection == "服务未连接") {
+                workspace.openOffline(target.id)
+                while (workspace.busy) delay(50)
+            }
             if (workspace.busy) continue
             workspace.dismissError()
             try {
                 if (workspace.online) { workspace.refreshSessions(); continue }
                 if (connections[target.id]?.connected != true) connectHost(target)
-                if (confirmation != null) break
+                if (connections[target.id]?.connected != true) continue
                 val token = serviceToken(target.id)
                 workspace.connect(target.id, localPort(target.id), token) { reconnectService(target.id) }
             } catch (e: CancellationException) { throw e }
@@ -171,7 +185,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
             val token = serviceToken(id)
             return com.worldcopy.agentdeck.core.network.HostApi(port, token)
         } catch (e: HostKeyConfirmation) {
-            confirmation = host to e
+            requestConfirmation(host, e)
             statuses = statuses + (id to "等待核对主机身份")
             throw e
         }

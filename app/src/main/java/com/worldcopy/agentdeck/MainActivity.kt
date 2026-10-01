@@ -52,6 +52,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onStart() {
+        super.onStart()
+        (application as AgentDeckApplication).hosts.syncProjects()
+    }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); readTarget(intent) }
     private fun readTarget(intent: Intent) {
         val host = intent.getStringExtra("hostId"); val thread = intent.getStringExtra("threadId")
@@ -99,8 +103,8 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
         projectScope = null
         val workspace = app.workspace(host)
         if (workspace.connection == "服务未连接") workspace.openOffline(host)
-        // Defer opening until the cached host state is loaded.
-        while (workspace.busy) kotlinx.coroutines.delay(50)
+        // Restore the service and cached state before selecting the notification's conversation.
+        while (vm.busy || workspace.busy) kotlinx.coroutines.delay(50)
         workspace.openSession(JSONObject().put("id", thread))
         consumeTarget()
     } }
