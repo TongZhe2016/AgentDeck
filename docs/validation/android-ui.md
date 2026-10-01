@@ -47,3 +47,13 @@
 vivo V2502A 解锁后已通过 USB 更新此次新版，安装返回 `Success`，打开 `MainActivity` 返回 `Status: ok`。已有配置保留；上述自动同步行为验收在模拟器完成。
 
 真机打开新版后，macbook、eez75、eez076、eez144、eez145 的项目缓存时间已刷新。tz-4090 的缓存仍保留；其手机地址、端口、用户名与本机 SSH 别名一致，已保存主机公钥与部署时读取的公钥相同，但从 Mac 连接该 SSH 入口也返回 `Connection refused`，待该入口恢复后再同步。
+
+## 项目页主机连接状态
+
+2026-10-01：主机行右侧在连接／读取项目期间显示 Material 3 转圈，失败或待核对身份时显示警告三角形，正常时显示折叠箭头。展开同一主机可查看错误、最近同步时间，以及同步／重试和取消读取入口；独立“主机同步”区域已移除。没有项目缓存的主机也会出现在列表。SSH 连接和自动重连按主机记录进行状态，连接／项目读取错误单独保存，其他会话操作错误不会标为连接失败。
+
+- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
+- 在 `emulator-5554` 上两项指定测试通过（`OK (2 tests)`）：`ProjectHomeTest#connectionProgressFailureAndRetryStayOnTheirHostRow` 和 `ProjectHomeTest#homeCollapsesHostsAndProjectsAndOpensConversationOnItsOwnHost`。
+- 新测试用本机回环 TCP 端口暂停实际 SSH 握手，再主动关闭连接，验证零项目主机的转圈 → 警告、另一主机不显示转圈、在同一主机卡片重试、会话操作错误不显示连接警告，以及缓存项目／对话仍可展开。原有两层折叠与跨主机导航继续通过。
+- 已检查浅色加载／失败截图，状态图标和主机文字、错误及重试按钮正常；截图和日志保存在忽略的 `.local/project-host-status/`。测试主机与缓存已清理，本轮未调用真实模型。
+- 手机 USB 更新暂未完成：vivo 返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，ADB 状态显示手机锁屏且屏幕关闭，等待解锁后重试。

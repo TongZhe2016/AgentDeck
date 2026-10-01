@@ -1,6 +1,7 @@
 package com.worldcopy.agentdeck.core
 
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.worldcopy.agentdeck.MainActivity
 import com.worldcopy.agentdeck.AgentDeckApplication
@@ -16,6 +17,8 @@ import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.net.InetAddress
+import java.net.ServerSocket
 
 class ProjectHomeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -117,5 +120,66 @@ class ProjectHomeTest {
         assertNull(app.workspaces[b.id]!!.selected)
         compose.onNodeWithText("归档对话").assertDoesNotExist()
         compose.onNodeWithContentDescription("返回项目").performClick()
+    }
+
+    @Test fun connectionProgressFailureAndRetryStayOnTheirHostRow() {
+        // Hold the SSH handshake open so the actual connection has an observable loading state.
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+            server.soTimeout = 5000
+            val empty = Host(name = "待连接主机", address = "127.0.0.1", port = server.localPort,
+                username = "fixture", authMethod = AuthMethod.PASSWORD)
+            val cached = empty.copy(id = java.util.UUID.randomUUID().toString(), name = "缓存主机")
+            for (host in listOf(empty, cached)) {
+                fixtureIds += host.id
+                if (host == cached) {
+                    val cache = File(app.noBackupFilesDir, "workspace").apply { mkdirs() }
+                    File(cache, "${host.id}-sessions.json").writeText(JSONObject().put("data",
+                        JSONArray(listOf(thread("cached", "/work/project", "离线对话")))).toString())
+                }
+                compose.waitUntil(5000) { !app.hosts.busy }
+                compose.runOnUiThread { app.hosts.save(host, "fixture") {} }
+                compose.waitUntil(5000) { app.hosts.hosts.any { it.id == host.id } && app.workspaces[host.id]?.busy == false }
+            }
+            compose.onNodeWithText("主机同步").assertDoesNotExist()
+            compose.onNodeWithTag("project-host:${empty.id}").performScrollTo().performClick()
+            val retry = "project-host-sync:${empty.id}"
+            compose.onNodeWithTag(retry).performScrollTo().performClick()
+            server.accept().use {
+                compose.waitUntil(5000) { empty.id in app.hosts.connectingHosts }
+                compose.onNodeWithTag("project-host-loading:${empty.id}", useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithTag("project-host-warning:${empty.id}", useUnmergedTree = true).assertDoesNotExist()
+                compose.onNodeWithTag("project-host:${cached.id}").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithTag("project-host-loading:${cached.id}", useUnmergedTree = true).assertDoesNotExist()
+                compose.runOnUiThread { app.workspaces[cached.id]!!.reportError("合成会话操作错误") }
+                compose.onNodeWithTag("project-host-warning:${cached.id}", useUnmergedTree = true).assertDoesNotExist()
+                captureHostStatus("loading")
+            }
+            compose.waitUntil(10000) { !app.hosts.busy && app.workspaces[empty.id]?.error != null }
+            compose.onNodeWithTag("project-host:${empty.id}").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("project-host-warning:${empty.id}", useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("project-host-loading:${empty.id}", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag(retry).performScrollTo().assertIsEnabled()
+            captureHostStatus("failure")
+            // Retry the same host without navigating to an additional sync section.
+            compose.onNodeWithTag(retry).performClick()
+            server.accept().use {
+                compose.waitUntil(5000) { empty.id in app.hosts.connectingHosts }
+                compose.onNodeWithTag("project-host-loading:${empty.id}", useUnmergedTree = true).assertIsDisplayed()
+            }
+            compose.waitUntil(10000) { !app.hosts.busy }
+            // Failure does not hide the other host's offline projects or conversations.
+            compose.onNodeWithTag("project-host:${cached.id}").performScrollTo().performClick()
+            compose.onNodeWithTag("project:${cached.id}:/work/project").performScrollTo().performClick()
+            compose.onNodeWithTag("thread:${cached.id}:cached").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    private fun captureHostStatus(state: String) {
+        compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+            File(app.cacheDir, "project-host-$state.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            bitmap.recycle()
+        }
     }
 }

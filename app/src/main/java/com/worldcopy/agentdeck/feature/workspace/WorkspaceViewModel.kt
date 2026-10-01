@@ -21,6 +21,7 @@ data class ChatItem(val id: String, val role: String, val text: String)
 class WorkspaceViewModel(application: Application) : AndroidViewModel(application) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+    var projectSyncError by mutableStateOf<String?>(null); private set
     var connection by mutableStateOf("服务未连接"); private set
     var sessions by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var projectSessions by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -76,11 +77,12 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         projectSessions = emptyList()
         if (api == null) { sessions = emptyList(); messages = emptyList(); gitState = null; commits = emptyList() }
     }
-    fun dismissError() { error = null }
+    fun dismissError() { error = null; projectSyncError = null }
     fun clearDiff() { diff = null }
     fun clearDetail() { detail = null }
     fun clearSession() { saveDraft(); selected = null; messages = emptyList() }
     fun reportError(message: String) { error = message }
+    fun reportProjectSyncError(message: String) { projectSyncError = message; reportError(message) }
     fun attachImage(uri: android.net.Uri) = work { addImage(uri) }
     fun importShare(text: String, images: List<android.net.Uri>) = work {
         check(requestId == null) { "请先确认上次消息送达" }
@@ -161,13 +163,13 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val id = selected?.optString("id") ?: return
         writeCache("draft-$id", JSONObject().put("draft", draft).put("requestId", requestId).put("pendingText", pendingText).put("pendingAttachments", pendingAttachments?.let { JSONArray(it) }).put("attachments", JSONArray(attachments.map { JSONObject().put("id", it.id).put("path", it.path).put("mime", it.mime).put("uploaded", it.uploaded) })).toString())
     }
-    private fun work(action: suspend () -> Unit) {
+    private fun work(onFailure: (String) -> Unit = {}, action: suspend () -> Unit) {
         if (busy) return
         workJob = viewModelScope.launch {
             busy = true
             try { action() }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.message ?: "请求失败" }
+            catch (e: Exception) { val message = e.message ?: "请求失败"; error = message; onFailure(message) }
             finally { busy = false }
         }
     }
@@ -209,7 +211,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         eventsJob?.cancel(); api?.close(); saveDraft()
         hostId = id; selected = null; messages = emptyList(); gitState = null; commits = emptyList(); runs = emptyList(); approvals = emptyList()
         api = HostApi(port, token)
-        work {
+        work(onFailure = { projectSyncError = it }) {
+            projectSyncError = null
             file("sessions").takeIf { it.exists() }?.let {
                 val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt")
             }
@@ -304,7 +307,10 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
-    fun refreshSessions(search: String = "", more: Boolean = false) = work { loadSessions(search, more) }
+    fun refreshSessions(search: String = "", more: Boolean = false) = work(onFailure = { projectSyncError = it }) {
+        projectSyncError = null
+        loadSessions(search, more)
+    }
     private suspend fun loadSessions(search: String = "", more: Boolean = false) {
         val service = api ?: error("请先连接主机以同步项目")
         if (search.isBlank() && !more) {

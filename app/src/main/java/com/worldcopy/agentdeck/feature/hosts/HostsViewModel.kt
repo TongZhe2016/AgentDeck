@@ -26,6 +26,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     var busy by mutableStateOf(false); private set
     var message by mutableStateOf<String?>(null); private set
     var statuses by mutableStateOf<Map<String, String>>(emptyMap()); private set
+    var connectingHosts by mutableStateOf<Set<String>>(emptySet()); private set
     private var confirmations by mutableStateOf<List<Pair<Host, HostKeyConfirmation>>>(emptyList())
     val confirmation get() = confirmations.firstOrNull()
     private val connections = mutableMapOf<String, SshConnection>()
@@ -108,7 +109,11 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun connect(host: Host) = work { connectHost(host) }
+    fun connect(host: Host) = work {
+        connectingHosts = connectingHosts + host.id
+        try { connectHost(host) }
+        finally { connectingHosts = connectingHosts - host.id }
+    }
 
     private suspend fun connectHost(host: Host) {
         statuses = statuses + (host.id to "正在连接…")
@@ -140,20 +145,22 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         val app = getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication
         for (target in targets) {
             val workspace = app.workspace(target.id)
-            if (workspace.connection == "服务未连接") {
-                workspace.openOffline(target.id)
-                while (workspace.busy) delay(50)
-            }
-            if (workspace.busy) continue
-            workspace.dismissError()
+            connectingHosts = connectingHosts + target.id
             try {
+                if (workspace.connection == "服务未连接") {
+                    workspace.openOffline(target.id)
+                    while (workspace.busy) delay(50)
+                }
+                if (workspace.busy) continue
+                workspace.dismissError()
                 if (workspace.online) { workspace.refreshSessions(); continue }
                 if (connections[target.id]?.connected != true) connectHost(target)
                 if (connections[target.id]?.connected != true) continue
                 val token = serviceToken(target.id)
                 workspace.connect(target.id, localPort(target.id), token) { reconnectService(target.id) }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { workspace.reportError(e.message ?: "同步失败") }
+            catch (e: Exception) { workspace.reportProjectSyncError(e.message ?: "同步失败") }
+            finally { connectingHosts = connectingHosts - target.id }
         }
     }
 
@@ -172,6 +179,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun reconnectService(id: String): com.worldcopy.agentdeck.core.network.HostApi {
         val host = hosts.firstOrNull { it.id == id } ?: error("主机已删除")
+        connectingHosts = connectingHosts + id
         try {
             val port = withContext(Dispatchers.IO) {
                 closeConnection(id)
@@ -188,7 +196,9 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
             requestConfirmation(host, e)
             statuses = statuses + (id to "等待核对主机身份")
             throw e
-        }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { statuses = statuses + (id to "连接失败"); throw e }
+        finally { connectingHosts = connectingHosts - id }
     }
 
     fun disconnectAll() = work {

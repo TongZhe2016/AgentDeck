@@ -21,7 +21,7 @@ enum class DeckIcon(@param:DrawableRes val resource: Int) {
     Inbox(R.drawable.ic_deck_inbox), Sync(R.drawable.ic_deck_sync), More(R.drawable.ic_deck_more),
     Add(R.drawable.ic_deck_add), Chevron(R.drawable.ic_deck_chevron), Back(R.drawable.ic_deck_arrow),
     Chat(R.drawable.ic_deck_chat), Send(R.drawable.ic_deck_send), Upload(R.drawable.ic_deck_upload),
-    Shield(R.drawable.ic_deck_shield), Check(R.drawable.ic_deck_check), Search(R.drawable.ic_deck_search),
+    Shield(R.drawable.ic_deck_shield), Check(R.drawable.ic_deck_check), Warning(R.drawable.ic_deck_warning), Search(R.drawable.ic_deck_search),
     Code(R.drawable.ic_deck_code), Branch(R.drawable.ic_deck_branch), Attachment(R.drawable.ic_deck_attachment), Close(R.drawable.ic_deck_close),
 }
 

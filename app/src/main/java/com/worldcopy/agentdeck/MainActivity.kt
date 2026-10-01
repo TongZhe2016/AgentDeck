@@ -159,7 +159,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
         }
         if (workspaceId != null) WorkspaceScreen(app.workspace(workspaceId!!), fromProjects, projectScope) { workspaceId = null; if (fromProjects) tab = 0 }
         else when (tab) {
-            0 -> ProjectsScreen(vm.hosts, app.workspaces, vm.busy, vm::syncProjects, { tab = 1 }) { group, session ->
+            0 -> ProjectsScreen(vm.hosts, app.workspaces, vm.busy, vm.connectingHosts, vm.statuses, vm::syncProjects, { tab = 1 }) { group, session ->
                 val workspace = app.workspace(group.key.hostId)
                 workspace.browseProject(group.key.path)
                 if (session != null) workspace.openSession(session)
