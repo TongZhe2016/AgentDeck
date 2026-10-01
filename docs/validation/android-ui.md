@@ -56,4 +56,4 @@ vivo V2502A 解锁后已通过 USB 更新此次新版，安装返回 `Success`�
 - 在 `emulator-5554` 上两项指定测试通过（`OK (2 tests)`）：`ProjectHomeTest#connectionProgressFailureAndRetryStayOnTheirHostRow` 和 `ProjectHomeTest#homeCollapsesHostsAndProjectsAndOpensConversationOnItsOwnHost`。
 - 新测试用本机回环 TCP 端口暂停实际 SSH 握手，再主动关闭连接，验证零项目主机的转圈 → 警告、另一主机不显示转圈、在同一主机卡片重试、会话操作错误不显示连接警告，以及缓存项目／对话仍可展开。原有两层折叠与跨主机导航继续通过。
 - 已检查浅色加载／失败截图，状态图标和主机文字、错误及重试按钮正常；截图和日志保存在忽略的 `.local/project-host-status/`。测试主机与缓存已清理，本轮未调用真实模型。
-- 手机 USB 更新暂未完成：vivo 返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，ADB 状态显示手机锁屏且屏幕关闭，等待解锁后重试。
+- vivo V2502A 解锁后已通过 USB 更新此版，安装返回 `Success`，打开 `MainActivity` 返回 `Status: ok`，已有配置保留。
