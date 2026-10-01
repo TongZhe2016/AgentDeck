@@ -62,14 +62,17 @@ class UiLayoutTest {
         }
         val first = hosts.first()
         val projectTag = "project:${first.id}:$project"
-        compose.onNodeWithTag("project-host:${first.id}").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("project-host:${first.id}"))
+        compose.onNodeWithTag("project-host:${first.id}").assertIsDisplayed()
         capture("projects")
         compose.onNodeWithTag("project-host:${first.id}").performClick()
-        compose.onNodeWithTag(projectTag).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag(projectTag))
+        compose.onNodeWithTag(projectTag).assertIsDisplayed()
         capture("host-expanded")
         compose.onNodeWithTag(projectTag).performClick()
-        compose.onNodeWithTag("thread:${first.id}:$threadId").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("thread:${first.id}:$threadId"))
         capture("project-expanded")
+        compose.onNodeWithTag("thread:${first.id}:$threadId").assertIsDisplayed()
         compose.onNodeWithTag("thread:${first.id}:$threadId").performClick()
         compose.waitUntil(10000) { app.workspaces[first.id]?.messages?.size == 2 }
         capture("chat")
@@ -87,9 +90,13 @@ class UiLayoutTest {
         capture("diff")
         compose.onNodeWithContentDescription("关闭差异").performClick()
         compose.onNodeWithContentDescription("返回项目").performClick()
-        compose.onNodeWithTag("project-host:${first.id}").performScrollTo().performTouchInput { longClick() }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("project-host:${first.id}"))
+        compose.onNodeWithTag("project-host:${first.id}").performTouchInput { longClick() }
+        listOf("进入工作台", "连接", "重连", "编辑", "克隆", "删除").forEach {
+            compose.onNodeWithText(it, substring = false).performScrollTo().assertIsDisplayed()
+        }
         capture("host-menu")
-        compose.onNodeWithText("编辑").performClick()
+        compose.onNodeWithText("编辑").performScrollTo().performClick()
         compose.onNodeWithText("主机名称").assertExists()
         compose.onNodeWithText("取消").performClick()
         compose.onNodeWithTag("nav-1").performClick()

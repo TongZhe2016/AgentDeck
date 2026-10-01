@@ -65,5 +65,5 @@ vivo V2502A 解锁后已通过 USB 更新此次新版，安装返回 `Success`�
 - `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
 - `emulator-5554` 上 `ProjectHomeTest`（4 项）、`HostCloneTest`（2 项）、`UiLayoutTest`（1 项）通过，结果 `OK (7 tests)`。
 - 验证首页新增按钮位于同步左侧，新增／编辑保存、长按六项操作、进入工作台与返回项目、删除取消与确认、实际 SSH 等待／失败／重连，以及密码和密钥克隆。项目两层折叠、缓存会话、密钥与待处理导航继续可用。
-- 已检查正常字号浅色项目首页和长按菜单截图。窄屏大字号适配继续验证；截图与日志保存在忽略的 `.local/project-host-management/`，本轮未使用真实模型。
-- 当前 ADB 仅发现模拟器，手机更新等待 USB 连接。
+- 已检查正常字号浅色项目首页与长按菜单、375 × 750dp 深色 2 倍字号、750 × 375dp 深色横屏截图，两个适配配置的 `UiLayoutTest` 均通过。顶部按钮保持添加在前、同步在后，大字号下换行；菜单直接完整展开，横屏可滚动访问全部六项操作。测试中的 LazyColumn 定位按列表查找目标项，验证展开后的项目／对话实际可见。模拟器配置已恢复，截图与日志保存在忽略的 `.local/project-host-management/`，本轮未使用真实模型。
+- 已通过 USB 更新到 vivo V2502A，安装返回 `Success`，打开 `MainActivity` 返回 `Status: ok`，已有配置保留。

@@ -101,7 +101,8 @@ fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewMode
     menuHost?.let { host ->
         val workspace = workspaces[host.id]
         val enabled = !connecting && workspace?.busy != true
-        ModalBottomSheet(onDismissRequest = { menuHost = null }) {
+        ModalBottomSheet(onDismissRequest = { menuHost = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                 Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
                     Text(host.name, style = MaterialTheme.typography.titleLarge)
