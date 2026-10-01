@@ -109,10 +109,11 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun connect(host: Host) = work {
-        connectingHosts = connectingHosts + host.id
-        try { connectHost(host) }
-        finally { connectingHosts = connectingHosts - host.id }
+    fun reconnect(host: Host) = work {
+        stopWorkspace(host.id)
+        withContext(Dispatchers.IO) { closeConnection(host.id) }
+        statuses = statuses - host.id
+        syncHosts(listOf(host))
     }
 
     private suspend fun connectHost(host: Host) {

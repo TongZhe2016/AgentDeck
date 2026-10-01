@@ -167,11 +167,65 @@ class ProjectHomeTest {
                 compose.onNodeWithTag("project-host-loading:${empty.id}", useUnmergedTree = true).assertIsDisplayed()
             }
             compose.waitUntil(10000) { !app.hosts.busy }
+            compose.onNodeWithTag("project-host:${empty.id}").performScrollTo().performTouchInput { longClick() }
+            compose.onNodeWithText("重连", substring = false).performScrollTo().performClick()
+            server.accept().use {
+                compose.waitUntil(5000) { empty.id in app.hosts.connectingHosts }
+                compose.onNodeWithTag("project-host-loading:${empty.id}", useUnmergedTree = true).assertIsDisplayed()
+            }
+            compose.waitUntil(10000) { !app.hosts.busy }
             // Failure does not hide the other host's offline projects or conversations.
             compose.onNodeWithTag("project-host:${cached.id}").performScrollTo().performClick()
             compose.onNodeWithTag("project:${cached.id}:/work/project").performScrollTo().performClick()
             compose.onNodeWithTag("thread:${cached.id}:cached").performScrollTo().assertIsDisplayed()
         }
+    }
+
+    @Test fun projectHomeAddsEditsOpensAndDeletesHostThroughLongPress() {
+        compose.waitUntil(10000) { !app.hosts.busy }
+        val add = compose.onNodeWithText("添加主机", substring = false)
+        val sync = compose.onNodeWithText("同步项目", substring = false)
+        assertTrue(add.fetchSemanticsNode().boundsInRoot.left < sync.fetchSemanticsNode().boundsInRoot.left)
+        compose.onNodeWithTag("nav-3").assertDoesNotExist()
+        add.performClick()
+        compose.onNodeWithText("主机名称").performTextInput("项目页管理测试")
+        compose.onNodeWithText("SSH 地址").performTextInput("127.0.0.1")
+        compose.onNodeWithText("SSH 端口").performTextReplacement("1")
+        compose.onNodeWithText("用户名").performTextInput("fixture")
+        compose.onNode(hasSetTextAction() and hasText("密码")).performScrollTo().performTextInput("fixture")
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5000) { !app.hosts.busy && app.hosts.hosts.any { it.name == "项目页管理测试" } }
+        val host = app.hosts.hosts.single { it.name == "项目页管理测试" }
+        fixtureIds += host.id
+        compose.waitUntil(5000) { app.workspaces[host.id]?.busy == false }
+        fun menu() = compose.onNodeWithTag("project-host:${host.id}").performScrollTo().performTouchInput { longClick() }
+        menu()
+        listOf("进入工作台", "连接", "重连", "编辑", "克隆", "删除").forEach {
+            compose.onNodeWithText(it, substring = false).performScrollTo().assertIsEnabled()
+        }
+        compose.onNodeWithText("编辑", substring = false).performScrollTo().performClick()
+        compose.onNodeWithText("主机名称").performTextReplacement("项目页已编辑")
+        compose.onNodeWithText("SSH 端口").performTextReplacement("2")
+        compose.onNodeWithText("保存").performClick()
+        compose.waitUntil(5000) { !app.hosts.busy && app.hosts.hosts.any { it.id == host.id && it.name == "项目页已编辑" } }
+        assertEquals(2, app.hosts.hosts.single { it.id == host.id }.port)
+        menu()
+        compose.onNodeWithText("进入工作台").performScrollTo().performClick()
+        compose.onNodeWithText("电脑上的项目绝对路径").assertExists()
+        compose.onNodeWithContentDescription("返回项目").performClick()
+        menu()
+        compose.onNodeWithText("连接", substring = false).performScrollTo().performClick()
+        compose.waitUntil(10000) { !app.hosts.busy && app.workspaces[host.id]?.projectSyncError != null }
+        compose.onNodeWithTag("project-host-warning:${host.id}", useUnmergedTree = true).assertIsDisplayed()
+        menu()
+        compose.onNodeWithText("删除", substring = false).performScrollTo().performClick()
+        compose.onNodeWithText("取消", substring = false).performClick()
+        assertTrue(app.hosts.hosts.any { it.id == host.id })
+        menu()
+        compose.onNodeWithText("删除", substring = false).performScrollTo().performClick()
+        compose.onNodeWithText("确认", substring = false).performClick()
+        compose.waitUntil(5000) { !app.hosts.busy && app.hosts.hosts.none { it.id == host.id } }
+        compose.onNodeWithTag("project-host:${host.id}").assertDoesNotExist()
     }
 
     private fun captureHostStatus(state: String) {

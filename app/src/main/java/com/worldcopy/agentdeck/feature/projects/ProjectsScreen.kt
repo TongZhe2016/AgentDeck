@@ -1,6 +1,9 @@
 package com.worldcopy.agentdeck.feature.projects
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +18,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.worldcopy.agentdeck.core.model.Host
+import com.worldcopy.agentdeck.feature.hosts.ConfirmDialog
+import com.worldcopy.agentdeck.feature.hosts.HostEditor
+import com.worldcopy.agentdeck.feature.hosts.HostsViewModel
 import com.worldcopy.agentdeck.feature.workspace.WorkspaceViewModel
 import com.worldcopy.agentdeck.feature.workspace.string
 import com.worldcopy.agentdeck.ui.components.*
@@ -22,11 +28,19 @@ import org.json.JSONObject
 
 data class ProjectHostStatus(val loading: Boolean = false, val problem: String? = null, val label: String = "未同步")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectsScreen(hosts: List<Host>, workspaces: Map<String, WorkspaceViewModel>, connecting: Boolean,
-                   connectingHosts: Set<String>, sshStatuses: Map<String, String>,
-                   sync: (Host?) -> Unit, manageHosts: () -> Unit,
+fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewModel>, openWorkspace: (Host) -> Unit,
                    open: (ProjectGroup, JSONObject?) -> Unit) {
+    val hosts = vm.hosts
+    val connecting = vm.busy
+    val connectingHosts = vm.connectingHosts
+    val sshStatuses = vm.statuses
+    var menuHost by remember { mutableStateOf<Host?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Host?>(null) }
+    var cloning by remember { mutableStateOf<Host?>(null) }
+    var deleting by remember { mutableStateOf<Host?>(null) }
     val groups = groupProjects(hosts, workspaces.mapValues { it.value.projectSessions })
     val statuses = hosts.associate { host ->
         val workspace = workspaces[host.id]
@@ -47,18 +61,24 @@ fun ProjectsScreen(hosts: List<Host>, workspaces: Map<String, WorkspaceViewModel
     }
     ProjectList(groups, hosts, statuses, busyHosts = workspaces.filterValues { it.busy }.keys +
         if (connecting) hosts.map { it.id }.toSet() else emptySet(), open = open,
+        manageHost = { menuHost = it },
         header = {
             PageHeading("项目", "${groups.size} 个项目 · ${hosts.size} 台主机") {
-                FilledTonalButton(onClick = { sync(null) }, enabled = !connecting && workspaces.values.none { it.busy } && hosts.isNotEmpty()) {
-                    DeckGlyph(DeckIcon.Sync); Spacer(Modifier.width(8.dp)); Text("同步项目")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button(onClick = { adding = true }, enabled = !connecting) {
+                        DeckGlyph(DeckIcon.Add); Spacer(Modifier.width(8.dp)); Text("添加主机")
+                    }
+                    FilledTonalButton(onClick = { vm.syncProjects() }, enabled = !connecting && workspaces.values.none { it.busy } && hosts.isNotEmpty()) {
+                        DeckGlyph(DeckIcon.Sync); Spacer(Modifier.width(8.dp)); Text("同步项目")
+                    }
                 }
             }
+            if (hosts.isNotEmpty()) Text("长按主机管理连接与配置", Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (groups.isEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 EmptyState(DeckIcon.Folder, if (hosts.isEmpty()) "从第一台主机开始" else "发现你的项目",
-                    if (hosts.isEmpty()) "连接电脑后，在这里查看各个文件夹下的对话。" else "同步主机读取已有项目，或前往主机工作台新建会话。") {
-                    OutlinedButton(onClick = manageHosts) { Text("管理主机") }
-                }
+                    if (hosts.isEmpty()) "添加电脑后，在这里查看各个文件夹下的对话。" else "同步主机读取已有项目，或长按主机进入工作台新建会话。")
             }
         }, hostDetails = { host ->
             val workspace = workspaces[host.id]
@@ -71,19 +91,58 @@ fun ProjectsScreen(hosts: List<Host>, workspaces: Map<String, WorkspaceViewModel
                 if (!workspace?.snapshotTime.isNullOrBlank()) Text("最近同步：${workspace?.snapshotTime}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (workspace?.busy == true) TextButton(onClick = workspace::cancelWork) { Text("取消同步") }
-                else TextButton(onClick = { sync(host) }, enabled = !connecting,
+                else TextButton(onClick = { vm.syncProjects(host) }, enabled = !connecting,
                     modifier = Modifier.testTag("project-host-sync:${host.id}")) {
                     DeckGlyph(DeckIcon.Sync); Spacer(Modifier.width(8.dp))
                     Text(if (status.problem != null) "重试连接" else "同步此主机")
                 }
             }
         })
+    menuHost?.let { host ->
+        val workspace = workspaces[host.id]
+        val enabled = !connecting && workspace?.busy != true
+        ModalBottomSheet(onDismissRequest = { menuHost = null }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                    Text(host.name, style = MaterialTheme.typography.titleLarge)
+                    Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = { menuHost = null; openWorkspace(host) }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("进入工作台") }
+                TextButton(onClick = { menuHost = null; vm.syncProjects(host) }, enabled = enabled && workspace?.online != true,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("连接") }
+                TextButton(onClick = { menuHost = null; vm.reconnect(host) }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重连") }
+                HorizontalDivider(Modifier.padding(horizontal = 24.dp))
+                TextButton(onClick = { menuHost = null; editing = host }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("编辑") }
+                TextButton(onClick = { menuHost = null; cloning = host }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("克隆") }
+                TextButton(onClick = { menuHost = null; deleting = host }, enabled = enabled,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("删除") }
+            }
+        }
+    }
+    fun dismissEditor() { adding = false; editing = null; cloning = null }
+    if (adding || editing != null || cloning != null) HostEditor(editing ?: cloning, vm.identities, vm.busy,
+        cloning = cloning != null, dismiss = ::dismissEditor,
+        save = { host, password ->
+            val source = cloning
+            if (source != null) vm.cloneHost(source, host, password, ::dismissEditor)
+            else vm.save(host, password, ::dismissEditor)
+        })
+    deleting?.let { host -> ConfirmDialog("删除 ${host.name}？", "删除手机上的主机配置和凭据。", { deleting = null }) {
+        vm.deleteHost(host.id); deleting = null
+    } }
 }
 
 @Composable
 fun ProjectList(groups: List<ProjectGroup>, hosts: List<Host>,
                 statuses: Map<String, ProjectHostStatus> = emptyMap(), busyHosts: Set<String> = emptySet(),
                 open: (ProjectGroup, JSONObject?) -> Unit,
+                manageHost: (Host) -> Unit = {},
                 header: @Composable () -> Unit = {},
                 hostDetails: @Composable (Host) -> Unit = {}) {
     // Each visit starts with both levels collapsed.
@@ -100,10 +159,11 @@ fun ProjectList(groups: List<ProjectGroup>, hosts: List<Host>,
             item(key = "project-host:$hostId") {
                 QuietCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 80.dp).testTag("project-host:$hostId")
-                        .clickable(role = Role.Button, onClickLabel = if (hostExpanded) "收起项目" else "展开项目") {
+                        .combinedClickable(role = Role.Button, onClickLabel = if (hostExpanded) "收起项目" else "展开项目",
+                            onLongClickLabel = "${host.name}的主机操作", onLongClick = { manageHost(host) }, onClick = {
                             expandedHosts[hostId] = !hostExpanded
                             if (hostExpanded) projects.forEach { expandedProjects.remove(it.key) }
-                        }
+                        })
                         .semantics { stateDescription = "${status.label}，" + if (hostExpanded) "已展开" else "已折叠" }.padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconTile(DeckIcon.Computer)

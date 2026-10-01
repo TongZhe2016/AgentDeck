@@ -87,19 +87,17 @@ class UiLayoutTest {
         capture("diff")
         compose.onNodeWithContentDescription("关闭差异").performClick()
         compose.onNodeWithContentDescription("返回项目").performClick()
-        compose.onNodeWithTag("nav-1").performClick()
-        compose.onNodeWithTag("host-${first.id}").performScrollTo().assertIsDisplayed()
-        capture("hosts")
-        compose.onNodeWithContentDescription("${first.name}的主机操作").performClick()
+        compose.onNodeWithTag("project-host:${first.id}").performScrollTo().performTouchInput { longClick() }
+        capture("host-menu")
         compose.onNodeWithText("编辑").performClick()
         compose.onNodeWithText("主机名称").assertExists()
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithTag("nav-2").performClick()
+        compose.onNodeWithTag("nav-1").performClick()
         capture("keys")
         compose.onNodeWithText("导入已有密钥").performScrollTo().performClick()
         compose.onNodeWithTag("import-private").performScrollTo().assertExists()
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithTag("nav-3").performClick()
+        compose.onNodeWithTag("nav-2").performClick()
         compose.onNodeWithText("暂无待处理事项").assertExists()
         capture("pending")
     }
@@ -107,7 +105,7 @@ class UiLayoutTest {
     private fun capture(name: String) {
         compose.waitForIdle()
         val variant = InstrumentationRegistry.getArguments().getString("uiVariant") ?: "portrait"
-        val surface = if (name == "diff") compose.onNode(isDialog()) else compose.onRoot()
+        val surface = if (name == "diff" || name == "host-menu") compose.onNode(isDialog()) else compose.onRoot()
         surface.captureToImage().asAndroidBitmap().let { bitmap ->
             File(app.cacheDir, "ui-$variant-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()

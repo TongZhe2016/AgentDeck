@@ -36,12 +36,11 @@ class HostCloneTest {
         ready()
         compose.runOnUiThread { app.hosts.save(host, password) {} }
         compose.waitUntil(10000) { !app.hosts.busy && app.hosts.hosts.any { it.id == host.id } }
-        compose.onNodeWithTag("nav-1").performClick()
+        compose.onNodeWithTag("nav-0").performClick()
     }
 
     private fun openClone(host: Host) {
-        compose.onNodeWithTag("host-${host.id}").performScrollTo()
-        compose.onNodeWithContentDescription("${host.name}的主机操作").performClick()
+        compose.onNodeWithTag("project-host:${host.id}").performScrollTo().performTouchInput { longClick() }
         compose.onNodeWithText("克隆", substring = false).performClick()
         compose.onNodeWithText("克隆主机").assertIsDisplayed()
     }

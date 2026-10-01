@@ -24,7 +24,6 @@ import com.worldcopy.agentdeck.ui.components.*
 import com.worldcopy.agentdeck.ui.theme.DeckNavy
 import androidx.compose.ui.platform.LocalContext
 import com.worldcopy.agentdeck.core.notifications.ConnectionService
-import com.worldcopy.agentdeck.feature.hosts.HostsScreen
 import com.worldcopy.agentdeck.feature.hosts.KeysScreen
 import com.worldcopy.agentdeck.feature.hosts.HostIdentityDialog
 import com.worldcopy.agentdeck.feature.projects.ProjectsScreen
@@ -159,7 +158,13 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
         }
         if (workspaceId != null) WorkspaceScreen(app.workspace(workspaceId!!), fromProjects, projectScope) { workspaceId = null; if (fromProjects) tab = 0 }
         else when (tab) {
-            0 -> ProjectsScreen(vm.hosts, app.workspaces, vm.busy, vm.connectingHosts, vm.statuses, vm::syncProjects, { tab = 1 }) { group, session ->
+            0 -> ProjectsScreen(vm, app.workspaces, openWorkspace = { host ->
+                val workspace = app.workspace(host.id)
+                workspace.browseProject("")
+                projectScope = null
+                fromProjects = true
+                workspaceId = host.id
+            }) { group, session ->
                 val workspace = app.workspace(group.key.hostId)
                 workspace.browseProject(group.key.path)
                 if (session != null) workspace.openSession(session)
@@ -167,21 +172,8 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
                 fromProjects = true
                 workspaceId = group.key.hostId
             }
-            1 -> HostsScreen(vm) { host -> vm.work {
-                val workspace = app.workspace(host.id)
-                check(!workspace.busy) { "当前请求尚未结束，请稍后再试" }
-                if (vm.statuses[host.id] != "SSH 已连接") workspace.openOffline(host.id)
-                else {
-                    val port = vm.localPort(host.id)
-                    val token = vm.serviceToken(host.id)
-                    workspace.connect(host.id, port, token) { vm.reconnectService(host.id) }
-                }
-                fromProjects = false
-                projectScope = null
-                workspaceId = host.id
-            } }
-            2 -> KeysScreen(vm)
-            3 -> androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            1 -> KeysScreen(vm)
+            2 -> androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { PageHeading("待处理事项", "$pendingCount 项需要你的确认") }
                 if (pendingCount == 0) item {
                     EmptyState(DeckIcon.Inbox, "暂无待处理事项", "已连接主机的审批与问题会汇总到这里。")
@@ -217,9 +209,9 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
 
 @Composable
 private fun DeckNavigation(selected: Int, pending: Int, rail: Boolean, navigate: (Int) -> Unit) {
-    val destinations = listOf("项目" to DeckIcon.Folder, "主机" to DeckIcon.Computer, "密钥" to DeckIcon.Key, "待处理" to DeckIcon.Inbox)
+    val destinations = listOf("项目" to DeckIcon.Folder, "密钥" to DeckIcon.Key, "待处理" to DeckIcon.Inbox)
     @Composable fun glyph(index: Int) {
-        BadgedBox(badge = { if (index == 3 && pending > 0) Badge { Text(pending.toString()) } }) { DeckGlyph(destinations[index].second) }
+        BadgedBox(badge = { if (index == 2 && pending > 0) Badge { Text(pending.toString()) } }) { DeckGlyph(destinations[index].second) }
     }
     if (rail) NavigationRail(containerColor = MaterialTheme.colorScheme.surface, windowInsets = WindowInsets(0, 0, 0, 0)) {
         destinations.forEachIndexed { index, (label, _) ->

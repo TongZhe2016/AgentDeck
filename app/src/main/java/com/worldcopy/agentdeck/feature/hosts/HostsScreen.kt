@@ -30,70 +30,6 @@ import com.worldcopy.agentdeck.core.model.Host
 import com.worldcopy.agentdeck.core.model.SshIdentity
 
 @Composable
-fun HostsScreen(vm: HostsViewModel, openWorkspace: (Host) -> Unit) {
-    var editing by remember { mutableStateOf<Host?>(null) }
-    var cloning by remember { mutableStateOf<Host?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf<Host?>(null) }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(20.dp)) {
-        item {
-            PageHeading("我的主机", "${vm.hosts.size} 台电脑 · 通过 SSH 连接") {
-                Button(onClick = { adding = true }, enabled = !vm.busy) {
-                    DeckGlyph(DeckIcon.Add); Spacer(Modifier.width(8.dp)); Text("添加主机")
-                }
-            }
-        }
-        if (vm.hosts.isEmpty()) item {
-            EmptyState(DeckIcon.Computer, "连接第一台电脑", "使用账号密码，或在密钥页创建、导入 SSH 密钥。电脑上的项目和对话会集中显示在首页。")
-        }
-        items(vm.hosts, key = { it.id }) { host ->
-            var menu by remember { mutableStateOf(false) }
-            QuietCard(Modifier.fillMaxWidth().testTag("host-${host.id}")) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IconTile(DeckIcon.Computer)
-                        Column(Modifier.weight(1f)) {
-                            Text(host.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                        Box {
-                            IconButton(onClick = { menu = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.More, "${host.name}的主机操作") }
-                            DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                                DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; editing = host })
-                                DropdownMenuItem(text = { Text("克隆") }, onClick = { menu = false; cloning = host })
-                                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; deleting = host })
-                            }
-                        }
-                    }
-                    val status = vm.statuses[host.id] ?: "未连接"
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        StatusLabel(status, positive = status == "SSH 已连接")
-                        Text(if (host.authMethod == AuthMethod.KEY) "密钥 · ${vm.identities.find { it.id == host.identityId }?.name ?: "请选择密钥"}" else "密码登录",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FilledTonalButton(onClick = { openWorkspace(host) }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Code); Spacer(Modifier.width(8.dp)); Text("工作台") }
-                        OutlinedButton(onClick = { vm.connect(host) }, enabled = !vm.busy) { Text("连接 / 重连") }
-                    }
-                }
-            }
-        }
-    }
-    fun dismissEditor() { adding = false; editing = null; cloning = null }
-    if (adding || editing != null || cloning != null) HostEditor(editing ?: cloning, vm.identities, vm.busy,
-        cloning = cloning != null, dismiss = ::dismissEditor,
-        save = { host, password ->
-            val source = cloning
-            if (source != null) vm.cloneHost(source, host, password, ::dismissEditor)
-            else vm.save(host, password, ::dismissEditor)
-        })
-    deleting?.let { host -> ConfirmDialog("删除 ${host.name}？", "删除手机上的主机配置和凭据。", { deleting = null }) {
-        vm.deleteHost(host.id); deleting = null
-    } }
-}
-
-@Composable
 fun HostIdentityDialog(vm: HostsViewModel) {
     vm.confirmation?.let { (host, key) ->
         AlertDialog(onDismissRequest = vm::dismissConfirmation,
@@ -109,7 +45,7 @@ fun HostIdentityDialog(vm: HostsViewModel) {
 }
 
 @Composable
-private fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boolean, cloning: Boolean = false, dismiss: () -> Unit,
+fun HostEditor(original: Host?, identities: List<SshIdentity>, busy: Boolean, cloning: Boolean = false, dismiss: () -> Unit,
                        save: (Host, String?) -> Unit) {
     var name by remember { mutableStateOf(original?.name?.let { if (cloning) "$it（克隆）" else it } ?: "") }
     var address by remember { mutableStateOf(original?.address ?: "") }

@@ -268,7 +268,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     } catch (e: net.schmizz.sshj.userauth.UserAuthException) {
                         connection = "认证失败，已暂停重连"; error = "请检查此主机的登录凭据"; break
                     } catch (e: com.worldcopy.agentdeck.core.ssh.HostKeyConfirmation) {
-                        connection = "主机身份需核对，已暂停重连"; error = "请返回主机页核对 SSH 主机身份"; break
+                        connection = "主机身份需核对，已暂停重连"; error = "请在主机身份提示中核对 SSH 主机身份"; break
                     } catch (e: CancellationException) { throw e }
                     catch (_: Exception) { connection = "连接中断，等待恢复" }
                 }
