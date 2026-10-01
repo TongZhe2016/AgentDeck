@@ -62,8 +62,11 @@ class UiLayoutTest {
         }
         val first = hosts.first()
         val projectTag = "project:${first.id}:$project"
-        compose.onNodeWithTag(projectTag).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("project-host:${first.id}").performScrollTo().assertIsDisplayed()
         capture("projects")
+        compose.onNodeWithTag("project-host:${first.id}").performClick()
+        compose.onNodeWithTag(projectTag).performScrollTo().assertIsDisplayed()
+        capture("host-expanded")
         compose.onNodeWithTag(projectTag).performClick()
         compose.onNodeWithTag("thread:${first.id}:$threadId").performScrollTo().assertIsDisplayed()
         capture("project-expanded")

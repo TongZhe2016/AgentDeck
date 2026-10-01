@@ -51,7 +51,7 @@ class ProjectHomeTest {
         assertTrue(projects.all { it.name == "app" })
     }
 
-    @Test fun homeCollapsesProjectsAndOpensConversationOnItsOwnHost() {
+    @Test fun homeCollapsesHostsAndProjectsAndOpensConversationOnItsOwnHost() {
         val a = Host(name = "测试 Ubuntu", address = "localhost", username = "fixture", authMethod = AuthMethod.PASSWORD)
         val b = a.copy(id = java.util.UUID.randomUUID().toString(), name = "测试 Mac")
         val data = mapOf(a to listOf(thread("same-id", "/work/AgentDeck", "Ubuntu 对话"), thread("second", "/archive/AgentDeck", "归档对话")),
@@ -69,7 +69,32 @@ class ProjectHomeTest {
         }
         compose.onNodeWithTag("thread:${a.id}:same-id").assertDoesNotExist()
         compose.onNodeWithTag("thread:${b.id}:same-id").assertDoesNotExist()
+        val ubuntuProject = "project:${a.id}:/work/AgentDeck"
+        val archiveProject = "project:${a.id}:/archive/AgentDeck"
         val project = "project:${b.id}:/work/AgentDeck"
+        val ubuntuHost = "project-host:${a.id}"
+        val macHost = "project-host:${b.id}"
+        compose.onNodeWithTag(ubuntuHost).performScrollTo().assertExists()
+        compose.onNodeWithTag(ubuntuProject).assertDoesNotExist()
+        compose.onNodeWithTag(archiveProject).assertDoesNotExist()
+        compose.onNodeWithTag(macHost).performScrollTo().assertExists()
+        compose.onNodeWithTag(project).assertDoesNotExist()
+        compose.onNodeWithTag(ubuntuHost).performScrollTo().performClick()
+        compose.onNodeWithTag(ubuntuProject).performScrollTo().assertExists()
+        compose.onNodeWithTag(archiveProject).performScrollTo().assertExists()
+        compose.onNodeWithTag("thread:${a.id}:same-id").assertDoesNotExist()
+        compose.onNodeWithTag("thread:${a.id}:second").assertDoesNotExist()
+        compose.onNodeWithTag(ubuntuProject).performScrollTo().performClick()
+        compose.onNodeWithTag("thread:${a.id}:same-id").performScrollTo().assertExists()
+        compose.onNodeWithTag("thread:${a.id}:second").assertDoesNotExist()
+        compose.onNodeWithTag(ubuntuHost).performScrollTo().performClick()
+        compose.onNodeWithTag(ubuntuProject).assertDoesNotExist()
+        compose.onNodeWithTag("thread:${a.id}:same-id").assertDoesNotExist()
+        compose.onNodeWithTag(ubuntuHost).performClick()
+        compose.onNodeWithTag(ubuntuProject).performScrollTo().assertExists()
+        compose.onNodeWithTag("thread:${a.id}:same-id").assertDoesNotExist()
+        compose.onNodeWithTag(ubuntuHost).performScrollTo().performClick()
+        compose.onNodeWithTag(macHost).performScrollTo().performClick()
         compose.onNodeWithTag(project).performScrollTo().performClick()
         compose.onNodeWithTag("thread:${b.id}:same-id").assertExists()
         compose.onNodeWithTag("thread:${a.id}:same-id").assertDoesNotExist()
@@ -81,6 +106,9 @@ class ProjectHomeTest {
         compose.onNodeWithText("测试 Ubuntu 的缓存内容").assertDoesNotExist()
         compose.onNodeWithContentDescription("返回项目").performClick()
         compose.onNodeWithTag("thread:${b.id}:same-id").assertDoesNotExist()
+        compose.onNodeWithTag(macHost).performScrollTo().assertExists()
+        compose.onNodeWithTag(project).assertDoesNotExist()
+        compose.onNodeWithTag(macHost).performClick()
         compose.onNodeWithTag(project).performScrollTo().assertExists()
         compose.onNodeWithTag(project).performClick()
         compose.onNodeWithText("打开项目 / 新建对话").performScrollTo().performClick()
