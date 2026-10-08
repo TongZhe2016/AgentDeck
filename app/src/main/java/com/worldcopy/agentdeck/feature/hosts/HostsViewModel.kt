@@ -11,6 +11,7 @@ import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.model.SshIdentity
 import com.worldcopy.agentdeck.core.ssh.HostKeyConfirmation
 import com.worldcopy.agentdeck.core.ssh.SshConnection
+import com.worldcopy.agentdeck.core.ssh.SshKeyType
 import com.worldcopy.agentdeck.core.storage.HostStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +75,10 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         done()
     }
 
-    fun createKey(name: String) = work { withContext(Dispatchers.IO) { store.createIdentity(name) } }
+    fun createKey(name: String, type: SshKeyType = SshKeyType.ED25519, done: () -> Unit = {}) = work {
+        withContext(Dispatchers.IO) { store.createIdentity(name, type) }
+        done()
+    }
     fun importKey(name: String, privateText: String, publicText: String, passphrase: String, result: (String?) -> Unit) = work {
         try {
             withContext(Dispatchers.IO) { store.importIdentity(name, privateText, publicText, passphrase) }

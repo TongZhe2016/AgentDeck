@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.worldcopy.agentdeck.AgentDeckApplication
 import com.worldcopy.agentdeck.MainActivity
 import com.worldcopy.agentdeck.core.storage.HostStore
+import com.worldcopy.agentdeck.core.ssh.SshKeyType
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -29,12 +30,13 @@ class KeyImportScreenTest {
     }
 
     @Test fun importDialogRetainsInputAfterMismatchAndStoresEncryptedKey() {
+        compose.onNodeWithContentDescription("更多设置").performClick()
         compose.onNodeWithText("密钥", useUnmergedTree = true).performClick()
         compose.onNodeWithText("导入已有密钥").performScrollTo().performClick()
         compose.onNodeWithText("密钥名称").performTextInput(name)
-        compose.onNodeWithTag("import-private").performScrollTo().performTextInput(fixture("ed25519-encrypted"))
+        compose.onNodeWithTag("import-private").performScrollTo().performTextInput(fixture("rsa-pem-encrypted"))
         compose.onNodeWithTag("import-passphrase").performScrollTo().performTextInput("fixture-passphrase")
-        compose.onNodeWithTag("import-public").performScrollTo().performTextInput(fixture("rsa.pub"))
+        compose.onNodeWithTag("import-public").performScrollTo().performTextInput(fixture("ed25519.pub"))
         compose.onNodeWithText("导入", substring = false).performClick()
         compose.waitUntil(15000) { compose.onAllNodesWithText("公钥与私钥不匹配", substring = true).fetchSemanticsNodes().isNotEmpty() }
         assertTrue(app.hosts.identities.none { it.name == name })
@@ -47,7 +49,34 @@ class KeyImportScreenTest {
         val restored = HostStore(app).keyPair(identity.id)
         val encrypted = File(app.noBackupFilesDir, "credentials/key-${identity.id}").readBytes()
         assertFalse(encrypted.contentEquals(restored.private.encoded))
-        assertEquals(fixture("ed25519-encrypted.pub").split(' ').take(2), identity.publicKey.split(' ').take(2))
+        assertEquals(fixture("rsa-pem-encrypted.pub").split(' ').take(2), identity.publicKey.split(' ').take(2))
+    }
+
+    @Test fun createsSelectedKeyTypesAndRestoresSigning() {
+        compose.onNodeWithContentDescription("更多设置").performClick()
+        compose.onNodeWithText("密钥", useUnmergedTree = true).performClick()
+        for ((type, algorithm, prefix) in listOf(
+            Triple(SshKeyType.ED25519, "Ed25519", "ssh-ed25519"),
+            Triple(SshKeyType.RSA, "SHA256withRSA", "ssh-rsa"),
+            Triple(SshKeyType.ECDSA, "SHA256withECDSA", "ecdsa-sha2-nistp256"),
+        )) {
+            val previousIds = app.hosts.identities.map { it.id }.toSet()
+            compose.onNodeWithText("创建密钥").performScrollTo().performClick()
+            compose.onNodeWithText("密钥名称").performTextInput(name)
+            compose.onNodeWithText(type.label).performScrollTo().performClick()
+            androidx.test.espresso.Espresso.closeSoftKeyboard()
+            compose.onNodeWithText("创建", substring = false).performClick()
+            compose.waitUntil(30000) { !app.hosts.busy && app.hosts.identities.any { it.id !in previousIds } }
+            val identity = app.hosts.identities.single { it.id !in previousIds }
+            assertEquals(prefix, identity.publicKey.substringBefore(' '))
+            val restored = HostStore(app).keyPair(identity.id)
+            val signature = Signature.getInstance(algorithm, "BC")
+            val challenge = "Generated key storage round trip".toByteArray()
+            signature.initSign(restored.private); signature.update(challenge)
+            val signed = signature.sign()
+            signature.initVerify(restored.public); signature.update(challenge)
+            assertTrue(type.label, signature.verify(signed))
+        }
     }
 
     @Test fun importedAlgorithmsSignAfterEncryptedStorageRoundTrip() {

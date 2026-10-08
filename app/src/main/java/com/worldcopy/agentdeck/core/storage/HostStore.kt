@@ -6,6 +6,7 @@ import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.model.Host
 import com.worldcopy.agentdeck.core.model.SshIdentity
 import com.worldcopy.agentdeck.core.ssh.IdentityCrypto
+import com.worldcopy.agentdeck.core.ssh.SshKeyType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -51,9 +52,9 @@ class HostStore(context: Context) {
     }
 
     @Synchronized
-    fun createIdentity(name: String): SshIdentity {
+    fun createIdentity(name: String, type: SshKeyType = SshKeyType.ED25519): SshIdentity {
         require(name.isNotBlank()) { "请填写密钥名称" }
-        return saveIdentity(name, IdentityCrypto.generate())
+        return saveIdentity(name, IdentityCrypto.generate(type))
     }
 
     @Synchronized

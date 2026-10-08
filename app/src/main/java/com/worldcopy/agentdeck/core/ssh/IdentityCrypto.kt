@@ -21,9 +21,14 @@ import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.Security
+import java.security.spec.ECGenParameterSpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
+
+enum class SshKeyType(val label: String) {
+    ED25519("Ed25519"), RSA("RSA · 3072 位"), ECDSA("ECDSA · NIST P-256")
+}
 
 object IdentityCrypto {
     // Android's bundled BC provider lacks Ed25519; SSHJ needs the complete provider.
@@ -36,9 +41,20 @@ object IdentityCrypto {
         SecurityUtils.setSecurityProvider("BC")
     }
 
-    fun generate(): KeyPair {
+    fun generate(type: SshKeyType = SshKeyType.ED25519): KeyPair {
         initialize()
-        return KeyPairGenerator.getInstance("Ed25519", "BC").generateKeyPair()
+        val algorithm = when (type) {
+            SshKeyType.ED25519 -> "Ed25519"
+            SshKeyType.RSA -> "RSA"
+            SshKeyType.ECDSA -> "EC"
+        }
+        return KeyPairGenerator.getInstance(algorithm, "BC").apply {
+            when (type) {
+                SshKeyType.ED25519 -> Unit
+                SshKeyType.RSA -> initialize(3072)
+                SshKeyType.ECDSA -> initialize(ECGenParameterSpec("secp256r1"))
+            }
+        }.generateKeyPair()
     }
 
     fun restore(privateBytes: ByteArray, publicBytes: ByteArray, algorithm: String = "Ed25519"): KeyPair {

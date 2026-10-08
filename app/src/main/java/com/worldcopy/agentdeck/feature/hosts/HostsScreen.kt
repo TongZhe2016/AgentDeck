@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import com.worldcopy.agentdeck.ui.components.*
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.model.Host
 import com.worldcopy.agentdeck.core.model.SshIdentity
+import com.worldcopy.agentdeck.core.ssh.SshKeyType
 
 @Composable
 fun HostIdentityDialog(vm: HostsViewModel) {
@@ -126,10 +129,11 @@ fun KeysScreen(vm: HostsViewModel) {
         item {
             PageHeading("登录密钥", "在此设备加密保存，连接时选择使用") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Button(onClick = { creating = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Add); Spacer(Modifier.width(8.dp)); Text("创建 Ed25519 密钥") }
+                    Button(onClick = { creating = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Add); Spacer(Modifier.width(8.dp)); Text("创建密钥") }
                     OutlinedButton(onClick = { importing = true }, enabled = !vm.busy) { DeckGlyph(DeckIcon.Upload); Spacer(Modifier.width(8.dp)); Text("导入已有密钥") }
                 }
             }
+            Text("支持 Ed25519、RSA、ECDSA；已有 OpenSSH／PEM 私钥可直接导入。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (vm.identities.isEmpty()) item {
             EmptyState(DeckIcon.Key, "让登录更方便", "生成手机专用密钥，或导入电脑已有密钥。将对应公钥授权到电脑后，即可使用密钥登录。")
@@ -174,9 +178,12 @@ fun KeysScreen(vm: HostsViewModel) {
         }
     }
     if (importing) KeyImportDialog(vm) { importing = false }
-    if (creating || naming != null) NameDialog(naming?.name ?: "", { creating = false; naming = null }) { name ->
-        if (creating) vm.createKey(name) else naming?.let { vm.renameKey(it.id, name) }
-        creating = false; naming = null
+    if (creating) KeyCreateDialog(vm) { creating = false }
+    naming?.let { key ->
+        NameDialog(key.name, { naming = null }) { name ->
+            vm.renameKey(key.id, name)
+            naming = null
+        }
     }
     deleting?.let { key ->
         val names = vm.hosts.filter { it.identityId == key.id }.joinToString { it.name }.ifEmpty { "无" }
@@ -184,6 +191,31 @@ fun KeysScreen(vm: HostsViewModel) {
             vm.deleteKey(key); deleting = null
         }
     }
+}
+
+@Composable
+private fun KeyCreateDialog(vm: HostsViewModel, dismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(SshKeyType.ED25519) }
+    AlertDialog(onDismissRequest = { if (!vm.busy) dismiss() }, title = { Text("创建密钥") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Field(name, { name = it }, "密钥名称", enabled = !vm.busy)
+            Text("密钥类型", style = MaterialTheme.typography.titleSmall)
+            SshKeyType.entries.forEach { option ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .selectable(selected = type == option, enabled = !vm.busy, role = Role.RadioButton) { type = option },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = type == option, onClick = null, enabled = !vm.busy)
+                    Spacer(Modifier.width(8.dp))
+                    Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }, confirmButton = {
+        TextButton(enabled = !vm.busy && name.isNotBlank(), onClick = { vm.createKey(name, type, dismiss) }) {
+            Text(if (vm.busy) "正在创建…" else "创建")
+        }
+    }, dismissButton = { TextButton(onClick = dismiss, enabled = !vm.busy) { Text("取消") } })
 }
 
 @Composable
