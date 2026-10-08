@@ -98,13 +98,9 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         const id = decodeURIComponent(settingsRoute[1]);
         if (!store.managed(id)) throw new Error('请先恢复此历史会话');
         if (store.active(id)) throw new Error('请等待本轮执行结束后再修改设置');
-        const current = await codex.request('thread/read', { threadId: id, includeTurns: false });
-        if (current.thread.status?.type === 'active') throw new Error('此会话仍在运行');
-        const settings = await validateSettings(codex, await body(req), current.thread.cwd);
-        const result = await codex.request('thread/resume', { threadId: id, excludeTurns: true, ...threadSettings(settings) });
-        const effective = await effectiveSettings(codex, result);
-        store.saveSettings(id, effective);
-        json(res, { ...result.thread, executionSettings: effective, managed: true }); return;
+        const settings = await validateSettings(codex, await body(req));
+        store.saveSettings(id, settings);
+        json(res, { executionSettings: settings }); return;
       }
       const session = path.match(/^\/v1\/sessions\/([^/]+)(\/resume)?$/);
       if (session) {

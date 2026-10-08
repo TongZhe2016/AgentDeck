@@ -59,10 +59,8 @@ test('API lists models, saves validated settings, and lists summaries without re
     const saved = await request('sessions/thread/settings', settings);
     assert.equal(saved.status, 200);
     assert.deepEqual(saved.data.executionSettings, settings);
-    const resume = codex.calls.filter(c => c.method === 'thread/resume').at(-1)!;
-    assert.equal(resume.params.excludeTurns, true);
-    assert.equal(resume.params.sandbox, 'danger-full-access');
-    assert.equal(resume.params.approvalPolicy, 'never');
+    assert.equal(codex.calls.some(c => c.method === 'thread/read' || c.method === 'thread/resume'), false,
+      'changing next-turn settings must also work before an empty thread has a rollout');
     const invalid = await request('sessions/thread/settings', { ...settings, effort: 'low' });
     assert.equal(invalid.status, 400);
     assert.deepEqual(store.settings('thread'), settings);
@@ -88,10 +86,16 @@ test('settings survive restart and control both reloaded and already loaded turn
     store.updateRun(run.id, { state: 'completed' });
     codex.loaded = true;
     store.saveSettings('thread', { model: 'gpt-6.1-sol', effort: 'low', permissionMode: 'untrusted' });
-    await coordinator.start('two', 'thread', 'next');
+    const second = await coordinator.start('two', 'thread', 'next');
     turn = codex.calls.filter(c => c.method === 'turn/start').at(-1)!.params;
     assert.equal(turn.approvalPolicy, 'untrusted'); assert.equal(turn.sandboxPolicy.type, 'workspaceWrite');
     assert.equal(turn.model, 'gpt-6.1-sol'); assert.equal(turn.effort, 'low');
     assert.equal(codex.calls.filter(c => c.method === 'thread/resume').length, 1);
+    store.updateRun(second.id, { state: 'completed' });
+    store.saveSettings('thread', { model: 'gpt-6.1-sol', effort: 'high', permissionMode: 'never' });
+    await coordinator.start('three', 'thread', 'without approvals');
+    turn = codex.calls.filter(c => c.method === 'turn/start').at(-1)!.params;
+    assert.equal(turn.approvalPolicy, 'never');
+    assert.equal(turn.sandboxPolicy.type, 'workspaceWrite', 'disabling approvals must preserve the workspace sandbox');
   } finally { store.close(); }
 });

@@ -8,7 +8,7 @@ HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Author
 - `GET /v1/sessions?search=&cursor=`：Codex 原生会话标题搜索、分页，每页 40 条轻量摘要（id、name、preview、cwd、updatedAt、model、reasoningEffort、managed），不返回正文。使用本机状态数据库索引，避免每次列表查询扫描历史文件修复元数据。客户端连接时只取第一页，保留已缓存摘要，用户按需继续分页。查询不恢复执行。
 - `GET /v1/models?cwd=`：返回此电脑 Codex 的完整分页模型目录 `data`（model、displayName、supportedReasoningEfforts、defaultReasoningEffort 等）和当前项目的 `defaults`。不返回其余电脑配置。
 - `POST /v1/sessions {cwd}`：创建受管理 Codex 会话，初始采用 workspace-write 沙箱和 on-request 审批，返回实际 `executionSettings`。
-- `POST /v1/sessions/:id/settings {model,effort,permissionMode}`：保存并应用此会话的执行设置，返回会话及实际 `executionSettings`。仅受管理且空闲的会话可修改；按电脑返回的模型目录检查思考强度。`permissionMode` 支持 `read-only`（read-only / never）、`on-request`（workspace-write / on-request）、`untrusted`（workspace-write / untrusted）、`full-access`（danger-full-access / never）。设置保存在服务数据库，恢复会话及每轮执行均传给 Codex；不修改全局 config.toml。
+- `POST /v1/sessions/:id/settings {model,effort,permissionMode}`：保存此会话下一轮的执行设置，返回 `{executionSettings}`。仅受管理且空闲的会话可修改；按电脑返回的模型目录检查思考强度。`permissionMode` 支持 `read-only`（read-only / never）、`on-request`（workspace-write / on-request）、`untrusted`（workspace-write / untrusted）、`never`（workspace-write / never，越权操作失败）、`full-access`（danger-full-access / never）。设置保存在服务数据库，第一条消息发送前也可修改。恢复会话及每轮执行均传给 Codex；不修改全局 config.toml。
 - `GET /v1/sessions/:id?cursor=`：只读历史、managed 标记及已保存的 executionSettings，每页 20 个完整轮次，页内按时间升序；nextCursor 向更早历史翻页。
 - `POST /v1/search {query,project?,cursor?}`：原生正文搜索，每次最多十页，返回命中消息摘要、会话及继续扫描的游标；取消连接会停止后续扫描。
 - `POST /v1/sessions/:id/resume {confirmStopped:true}`：用户确认原有执行已停止后恢复原生 ID，沿用已保存设置。恢复时不返回完整历史，正文仍按需分页。

@@ -1,9 +1,9 @@
 import { Codex } from './codex.js';
 
-export const permissionModes = ['read-only', 'on-request', 'untrusted', 'full-access'] as const;
+export const permissionModes = ['read-only', 'on-request', 'untrusted', 'never', 'full-access'] as const;
 export type ExecutionSettings = { model: string; effort: string | null; permissionMode: typeof permissionModes[number] };
 
-export async function executionOptions(codex: Codex, cwd?: string) {
+async function listModels(codex: Codex) {
   const models: any[] = [];
   let cursor: string | null = null;
   do {
@@ -11,6 +11,11 @@ export async function executionOptions(codex: Codex, cwd?: string) {
     models.push(...page.data);
     cursor = page.nextCursor ?? null;
   } while (cursor);
+  return models;
+}
+
+export async function executionOptions(codex: Codex, cwd?: string) {
+  const models = await listModels(codex);
   const { config } = await codex.request('config/read', { includeLayers: false, cwd });
   const model = config.model ?? models.find(m => m.isDefault)?.model ?? models[0]?.model;
   return {
@@ -20,10 +25,10 @@ export async function executionOptions(codex: Codex, cwd?: string) {
   };
 }
 
-export async function validateSettings(codex: Codex, value: any, cwd: string): Promise<ExecutionSettings> {
+export async function validateSettings(codex: Codex, value: any): Promise<ExecutionSettings> {
   if (!value || typeof value.model !== 'string' || !permissionModes.includes(value.permissionMode)) throw new Error('执行设置无效');
-  const options = await executionOptions(codex, cwd);
-  const model = options.data.find(m => m.model === value.model);
+  const models = await listModels(codex);
+  const model = models.find(m => m.model === value.model);
   if (!model) throw new Error('此电脑的 Codex 未提供所选模型，请刷新模型列表');
   const effort = value.effort ?? model.defaultReasoningEffort;
   if (!model.supportedReasoningEfforts.some((entry: any) => entry.reasoningEffort === effort)) throw new Error('所选模型不支持此思考强度');
@@ -54,5 +59,5 @@ export async function effectiveSettings(codex: Codex, result: any): Promise<Exec
     .find(m => m.model === result.model)?.defaultReasoningEffort ?? null;
   return { model: result.model, effort,
     permissionMode: sandbox === 'dangerFullAccess' ? 'full-access' : sandbox === 'readOnly' ? 'read-only'
-      : result.approvalPolicy === 'untrusted' ? 'untrusted' : 'on-request' };
+      : result.approvalPolicy === 'untrusted' ? 'untrusted' : result.approvalPolicy === 'never' ? 'never' : 'on-request' };
 }
