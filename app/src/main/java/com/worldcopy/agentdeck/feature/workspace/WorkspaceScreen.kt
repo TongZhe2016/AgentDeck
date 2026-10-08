@@ -190,6 +190,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                     }
                 }
             }
+            vm.followingError?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (vm.messages.isNotEmpty() && listState.canScrollBackward) TextButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
                 Text("查看最新消息")
             }

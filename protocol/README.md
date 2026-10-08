@@ -10,7 +10,8 @@ HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Author
 - `GET /v1/models?cwd=`：返回此电脑 Codex 的完整分页模型目录 `data`（model、displayName、supportedReasoningEfforts、defaultReasoningEffort 等）和当前项目的 `defaults`。不返回其余电脑配置。
 - `POST /v1/sessions {cwd}`：创建受管理 Codex 会话，初始采用 workspace-write 沙箱和 on-request 审批，返回实际 `executionSettings`。
 - `POST /v1/sessions/:id/settings {model,effort,permissionMode}`：保存此会话下一轮的执行设置，返回 `{executionSettings}`。仅受管理且空闲的会话可修改；按电脑返回的模型目录检查思考强度。`permissionMode` 支持 `read-only`（read-only / never）、`on-request`（workspace-write / on-request）、`untrusted`（workspace-write / untrusted）、`never`（workspace-write / never，越权操作失败）、`full-access`（danger-full-access / never）。设置保存在服务数据库，第一条消息发送前也可修改。恢复会话及每轮执行均传给 Codex；不修改全局 config.toml。
-- `GET /v1/sessions/:id?cursor=`：只读历史、managed 标记及已保存的 executionSettings，每页 20 个完整轮次，页内按时间升序；nextCursor 向更早历史翻页。
+- `GET /v1/sessions/:id?cursor=`：只读历史、managed 标记及已保存的 executionSettings，每页 20 个完整轮次，页内按时间升序；nextCursor 向更早历史翻页，liveCursor 用于当前会话的增量正文跟随。
+- `GET /v1/sessions/:id/updates?cursor=`：只读当前会话的已存消息，不恢复或取得写入权。返回 `{turns,liveCursor,more}`，客户端按轮次／消息 ID 合并，完整消息覆盖临时文字；不要丢弃此前已加载历史。首次无 cursor 读取最新 20 轮，此后用 liveCursor 重读末轮并向更新轮次分页，每页最多 20 轮，more=true 时继续补页。服务先取得最新轮次的原生 backwardsCursor，再读取增量，避免新轮次在取锚点时被跳过。客户端约每秒读取，未变化的正文不重复解析；关闭会话停止读取。Codex 0.161.0 跨进程只能读取已落盘消息，尚未暴露其他写入者未完成消息的实时片段。
 - `POST /v1/search {query,project?,cursor?}`：原生正文搜索，每次最多十页，返回命中消息摘要、会话及继续扫描的游标；取消连接会停止后续扫描。
 - `POST /v1/sessions/:id/resume {confirmStopped:true}`：恢复原生 ID，沿用已保存设置。Android 在用户点击“继续对话”或为历史会话保存设置时调用；服务检查活动执行状态，仍在运行则拒绝恢复。仅浏览历史不调用此接口。恢复时不返回完整历史，正文仍按需分页。
 - `POST /v1/sessions/:id/takeover`：通过原生 resume 尝试取得写入权；成功返回 `{acquired:true,thread}`，其中 thread 含实际设置、managed=true、writerState=owned；其他写入者仍占用时返回 `{acquired:false,writerState:"external",message:"有其他用户正在使用"}`。不终止其他进程或删除写入锁。本服务活动执行须先结束或核实。

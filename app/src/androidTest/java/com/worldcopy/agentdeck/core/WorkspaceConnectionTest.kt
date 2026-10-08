@@ -146,6 +146,8 @@ internal class WorkspaceFixtureService(
     val port = server.localPort
     val lists = AtomicInteger()
     val histories = AtomicInteger()
+    val updates = AtomicInteger()
+    var liveTurns = JSONArray()
     val streams = AtomicInteger()
     var requestedFile: android.net.Uri? = null
     val fileBytes = ByteArray(1024 * 1024) { (it % 251).toByte() }
@@ -159,6 +161,8 @@ internal class WorkspaceFixtureService(
     val writes = CopyOnWriteArrayList<Pair<String, JSONObject>>()
     var settings = JSONObject().put("model", "gpt-6.1-sol").put("effort", "high").put("permissionMode", "on-request")
     private val sockets = CopyOnWriteArrayList<Socket>()
+    private val eventSockets = CopyOnWriteArrayList<Socket>()
+    fun dropEventConnections() { eventSockets.forEach { it.close() } }
     init {
         thread(isDaemon = true) {
             while (!server.isClosed) {
@@ -198,10 +202,13 @@ internal class WorkspaceFixtureService(
         if (path.startsWith("/v1/events")) {
             streams.incrementAndGet()
             output.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n".toByteArray()); output.flush()
-            while (!server.isClosed) {
-                val event = events.poll(1, TimeUnit.SECONDS)
-                output.write((if (event == null) ": keepalive\n\n" else "data: $event\n\n").toByteArray()); output.flush()
-            }
+            eventSockets += socket
+            try {
+                while (!server.isClosed) {
+                    val event = events.poll(1, TimeUnit.SECONDS)
+                    output.write((if (event == null) ": keepalive\n\n" else "data: $event\n\n").toByteArray()); output.flush()
+                }
+            } finally { eventSockets -= socket }
             return
         }
         if (length > 0) writes += path to JSONObject(String(body))
@@ -228,6 +235,10 @@ internal class WorkspaceFixtureService(
             }
             path == "/v1/sessions/thread/fork" -> JSONObject().put("id", "forked").put("forkedFromId", "thread")
                 .put("cwd", "/fixture").put("managed", true).put("writerState", "owned").put("executionSettings", settings)
+            path.contains("/updates") -> {
+                updates.incrementAndGet()
+                JSONObject().put("turns", liveTurns).put("liveCursor", "fixture-anchor").put("more", false)
+            }
             path.startsWith("/v1/sessions/forked") -> JSONObject().put("id", "forked").put("cwd", "/fixture").put("managed", true)
                 .put("writerState", "owned").put("executionSettings", settings).put("turns", JSONArray(listOf(JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             path == "/v1/sessions/thread/settings" -> {

@@ -74,6 +74,11 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private var api: HostApi? = null
     val online get() = connection == "在线"
     private var eventsJob: Job? = null
+    private var followJob: Job? = null
+    var followingError by mutableStateOf<String?>(null); private set
+    private var streamFlushJob: Job? = null
+    private val streamText = linkedMapOf<String, ChatItem>()
+    private val completeMessages = mutableSetOf<String>()
     private var workJob: Job? = null
     private var reopen: (suspend () -> HostApi)? = null
     private var hostId = ""
@@ -85,7 +90,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private val cacheDir = File(application.noBackupFilesDir, "workspace").apply { mkdirs() }
 
     fun disconnect() {
-        eventsJob?.cancel(); workJob?.cancel(); optionsJob?.cancel(); api?.close(); api = null; connection = "已断开 · 电脑任务继续"
+        followJob?.cancel(); flushStreamText(); eventsJob?.cancel(); workJob?.cancel(); optionsJob?.cancel(); api?.close(); api = null; connection = "已断开 · 电脑任务继续"
     }
     fun clearCache() = work {
         withContext(Dispatchers.IO) {
@@ -97,7 +102,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun dismissError() { error = null; projectSyncError = null }
     fun clearDiff() { diff = null }
     fun clearDetail() { detail = null }
-    fun clearSession() { saveDraft(); selected = null; messages = emptyList() }
+    fun clearSession() { stopFollowing(); saveDraft(); selected = null; messages = emptyList() }
     fun reportError(message: String) { error = message }
     fun dismissDownload() { downloadedName = null }
     fun cancelDownload() { downloadJob?.cancel() }
@@ -232,7 +237,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         project = path
     }
     fun openOffline(id: String) {
-        eventsJob?.cancel(); api?.close(); api = null; saveDraft()
+        stopFollowing(); eventsJob?.cancel(); api?.close(); api = null; saveDraft()
         hostId = id; selected = null; messages = emptyList(); approvals = emptyList(); runs = emptyList()
         connection = "离线 · 已缓存内容"
         work {
@@ -251,7 +256,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun connect(id: String, port: Int, token: String, reconnect: suspend () -> HostApi) {
         reopen = reconnect
         if (hostId == id && api != null && connection == "在线") return
-        eventsJob?.cancel(); api?.close(); saveDraft()
+        followJob?.cancel(); eventsJob?.cancel(); api?.close(); saveDraft()
         if (hostId != id) { selected = null; messages = emptyList(); gitState = null; commits = emptyList() }
         hostId = id; runs = emptyList(); approvals = emptyList()
         api = HostApi(port, token)
@@ -268,7 +273,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             selected?.let { thread ->
                 val result = api!!.get("sessions/${thread.getString("id")}")
                 selected = result; historyCursor = result.string("nextCursor").ifBlank { null }
-                messages = parseTurns(result); cacheMessages()
+                mergeLiveHistory(result); cacheMessages(); startFollowing(result)
             }
         }
     }
@@ -311,8 +316,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                             val result = api!!.get("sessions/${thread.getString("id")}")
                             selected = result
                             historyCursor = result.string("nextCursor").ifBlank { null }
-                            messages = parseTurns(result)
-                            cacheMessages()
+                            mergeLiveHistory(result)
+                            cacheMessages(); startFollowing(result)
                           }
                         }
                     } catch (e: net.schmizz.sshj.userauth.UserAuthException) {
@@ -354,18 +359,25 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 if (params.optString("threadId") != selected?.optString("id")) return
                 when (data.optString("method")) {
                     "item/started", "item/completed" -> params.optJSONObject("item")?.let { item ->
+                        val id = item.string("id")
+                        if (data.string("method") == "item/started" && id in completeMessages) return
+                        flushStreamText()
+                        if (item.string("type") == "agentMessage" && data.string("method") == "item/completed") completeMessages += id
                         parseItem(item, params.string("turnId"))?.let { parsed -> messages = if (messages.any { it.id == parsed.id }) messages.map { if (it.id == parsed.id) parsed else it } else messages + parsed }
                     }
                     "item/agentMessage/delta" -> {
-                        val id = params.getString("itemId"); val old = messages.find { it.id == id }
-                        val updated = (old ?: ChatItem(id, "Agent", "", turnId = params.string("turnId"))).copy(text = boundedText((old?.text ?: "") + params.optString("delta"), 64_000))
-                        messages = if (old == null) messages + updated else messages.map { if (it.id == id) updated else it }
+                        val id = params.getString("itemId")
+                        if (id in completeMessages) return
+                        val old = streamText[id] ?: messages.find { it.id == id }
+                        streamText[id] = (old ?: ChatItem(id, "Agent", "", turnId = params.string("turnId")))
+                            .copy(text = boundedText((old?.text ?: "") + params.optString("delta"), 64_000))
+                        if (streamFlushJob?.isActive != true) streamFlushJob = viewModelScope.launch { delay(80); flushStreamText() }
                     }
                     "item/commandExecution/outputDelta" -> {
                         val id = params.string("itemId")
                         messages = messages.map { if (it.id == id) it.copy(text = boundedText(it.text + params.string("delta"), 32_000)) else it }
                     }
-                    "turn/completed" -> cacheMessages()
+                    "turn/completed" -> { flushStreamText(); cacheMessages() }
                 }
             }
         }
@@ -465,8 +477,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val summary = JSONObject(result.toString()).apply { remove("turns") }
         projectSessions = projectSessions.map { if (it.string("id") == result.string("id")) summary else it }
         cacheSessions()
-        messages = parseTurns(result)
-        cacheMessages()
+        mergeLiveHistory(result)
+        cacheMessages(); startFollowing(result)
     }
     fun olderHistory() = work {
         val id = selected?.getString("id") ?: return@work
@@ -477,6 +489,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         cacheMessages()
     }
     private fun showSession(session: JSONObject) {
+        stopFollowing()
         showFork = false; writerNotice = null
         saveDraft(); selected = session; project = session.optString("cwd"); messages = emptyList(); historyCursor = null
         val cached = file("draft-${session.getString("id")}").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
@@ -500,7 +513,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 cacheSessions()
                 val history = api!!.get("sessions/$id")
                 selected = history; historyCursor = history.string("nextCursor").ifBlank { null }
-                messages = parseTurns(history); cacheMessages()
+                mergeLiveHistory(history); cacheMessages(); startFollowing(history)
             } else {
                 selected = JSONObject(selected!!.toString()).put("writerState", "external")
                 writerNotice = "有其他用户正在使用"
@@ -516,7 +529,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         cacheSessions()
         val history = api!!.get("sessions/${result.getString("id")}")
         selected = history; historyCursor = history.string("nextCursor").ifBlank { null }
-        messages = parseTurns(history); cacheMessages()
+        mergeLiveHistory(history); cacheMessages(); startFollowing(history)
     }
     private suspend fun resumeHistoryIfNeeded(thread: JSONObject) {
         if (thread.optBoolean("managed")) return
@@ -550,6 +563,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             saveDraft()
             return@work
         }
+        if (followJob?.isActive != true && result.string("state") != "failed") startFollowing(session)
         if (draft == pendingText) draft = ""
         requestId = null; pendingText = null; pendingAttachments = null
         attachments.forEach { File(it.path).delete() }; attachments = emptyList(); saveDraft()
@@ -603,6 +617,61 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         detail = api!!.get("git/commit", mapOf("cwd" to project, "oid" to oid, "parent" to parent.toString()))
         writeCache("commit", JSONObject().put("project", project).put("result", detail).toString())
     }
+    private fun flushStreamText() {
+        streamFlushJob?.cancel(); streamFlushJob = null
+        if (streamText.isEmpty()) return
+        val updates = streamText.toMap(); streamText.clear()
+        messages = messages.map { updates[it.id] ?: it } + updates.values.filter { next -> messages.none { it.id == next.id } }
+    }
+    private fun stopFollowing() {
+        followJob?.cancel(); followJob = null
+        flushStreamText(); completeMessages.clear(); followingError = null
+    }
+    private fun startFollowing(history: JSONObject) {
+        followJob?.cancel()
+        val id = selected?.string("id") ?: return
+        var liveCursor = history.string("liveCursor")
+        var lastTurns = history.optJSONArray("turns")?.toString()
+        followingError = null
+        followJob = viewModelScope.launch {
+            var more = false
+            while (isActive && selected?.string("id") == id) {
+                if (!more) delay(1000)
+                val service = api ?: break
+                if (!online) { more = false; continue }
+                try {
+                    val result = service.get("sessions/$id/updates", if (liveCursor.isBlank()) emptyMap() else mapOf("cursor" to liveCursor))
+                    if (selected?.string("id") != id) break
+                    val before = messages
+                    val turns = result.optJSONArray("turns")?.toString()
+                    if (turns != lastTurns) { mergeLiveHistory(result); lastTurns = turns }
+                    liveCursor = result.string("liveCursor"); more = result.optBoolean("more")
+                    followingError = null
+                    if (messages != before) cacheMessages()
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { followingError = "消息同步中断，正在重试"; more = false; delay(2000) }
+            }
+        }
+    }
+    private suspend fun mergeLiveHistory(result: JSONObject) {
+        val incoming = parseTurns(result)
+        flushStreamText()
+        completeMessages += incoming.filter { it.role == "Agent" }.map { it.id }
+        val groups = messages.groupBy { it.turnId }.toMutableMap()
+        val order = groups.keys.toMutableList()
+        val updates = incoming.groupBy { it.turnId }
+        val newOrder = updates.keys.toList()
+        newOrder.forEachIndexed { index, turn ->
+            val fresh = updates.getValue(turn)
+            val ids = fresh.map { it.id }.toSet()
+            groups[turn] = fresh + groups[turn].orEmpty().filter { it.id !in ids }
+            if (turn !in order) {
+                val next = newOrder.drop(index + 1).firstOrNull { it in order }
+                order.add(if (next == null) order.size else order.indexOf(next), turn)
+            }
+        }
+        messages = order.flatMap { groups.getValue(it) }
+    }
     private suspend fun cacheMessages() {
         val id = selected?.optString("id") ?: return
         val settings = selected?.optJSONObject("executionSettings")
@@ -647,5 +716,5 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     private fun boundedText(text: String, limit: Int) = if (text.length > limit) "[前部内容已省略，完整记录保留在电脑]\n" + text.takeLast(limit) else text
-    override fun onCleared() { eventsJob?.cancel(); optionsJob?.cancel(); api?.close() }
+    override fun onCleared() { stopFollowing(); eventsJob?.cancel(); optionsJob?.cancel(); api?.close() }
 }

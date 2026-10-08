@@ -12,6 +12,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -98,7 +99,7 @@ class HostApi(private val port: Int, private val token: String) {
                         onConnected()
                         while (!call.isCanceled()) {
                             val line = source.readUtf8Line() ?: break
-                            if (line.startsWith("data: ") && !trySend(JSONObject(line.removePrefix("data: "))).isSuccess) {
+                            if (line.startsWith("data: ") && !trySendBlocking(JSONObject(line.removePrefix("data: "))).isSuccess) {
                                 error("事件消费落后，将从游标恢复")
                             }
                         }

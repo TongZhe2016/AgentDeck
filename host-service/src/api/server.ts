@@ -9,6 +9,7 @@ import { Attachments } from '../attachments/attachments.js';
 import { Transcription } from '../attachments/transcription.js';
 import { SessionCatalog } from '../history/catalog.js';
 import { search } from '../history/search.js';
+import { sessionUpdates } from '../history/updates.js';
 import { executionOptions, validateSettings, threadSettings, effectiveSettings } from '../providers/execution-settings.js';
 
 async function body(request: IncomingMessage): Promise<any> {
@@ -114,6 +115,10 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         store.saveSettings(id, settings);
         json(res, { executionSettings: settings }); return;
       }
+      const updates = path.match(/^\/v1\/sessions\/([^/]+)\/updates$/);
+      if (updates && req.method === 'GET') {
+        json(res, await sessionUpdates(codex, decodeURIComponent(updates[1]), url.searchParams.get('cursor'))); return;
+      }
       const session = path.match(/^\/v1\/sessions\/([^/]+)(\/resume)?$/);
       if (session) {
         const id = decodeURIComponent(session[1]);
@@ -131,7 +136,7 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         if (req.method === 'GET') {
           const result = await codex.request('thread/read', { threadId: id, includeTurns: false });
           const page = await codex.request('thread/turns/list', { threadId: id, limit: 20, sortDirection: 'desc', itemsView: 'full', cursor: url.searchParams.get('cursor') });
-          json(res, { ...result.thread, writerState: await codex.writerState(id), turns: page.data.reverse(), nextCursor: page.nextCursor, executionSettings: store.settings(id), managed: store.managed(id) }); return;
+          json(res, { ...result.thread, writerState: await codex.writerState(id), turns: page.data.reverse(), nextCursor: page.nextCursor, liveCursor: page.backwardsCursor, executionSettings: store.settings(id), managed: store.managed(id) }); return;
         }
       }
       if (path === '/v1/runs' && req.method === 'POST') {
