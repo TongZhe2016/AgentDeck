@@ -11,6 +11,9 @@ import androidx.activity.ComponentActivity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import com.worldcopy.agentdeck.feature.workspace.ExecutionSettingsSheet
+import com.worldcopy.agentdeck.feature.workspace.FullAccessTrack
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.MotionDurationScale
 import com.worldcopy.agentdeck.ui.theme.AgentDeckTheme
 import org.json.JSONArray
 import org.json.JSONObject
@@ -19,7 +22,22 @@ import org.junit.Rule
 import org.junit.Test
 
 class ExecutionSettingsTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    // Compose tests replace the Android animation clock, so pass its duration scale explicitly.
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>(object : MotionDurationScale {
+        override val scaleFactor = if (InstrumentationRegistry.getArguments().getString("animationsDisabled") == "true") 0f else 1f
+    })
+    @Test fun fullAccessWarningStripesMove() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { AgentDeckTheme { FullAccessTrack(steps = 3) } }
+        compose.mainClock.advanceTimeBy(32)
+        val before = compose.onNodeWithTag("full-access-track").captureToImage().toPixelMap()
+        compose.mainClock.advanceTimeBy(450)
+        val after = compose.onNodeWithTag("full-access-track").captureToImage().toPixelMap()
+        val changed = (0 until before.width).any { x -> before[x, before.height / 2] != after[x, after.height / 2] }
+        val animationsDisabled = InstrumentationRegistry.getArguments().getString("animationsDisabled") == "true"
+        assertEquals("Warning stripes follow the animation duration scale", !animationsDisabled, changed)
+    }
+
     @Test fun effortSliderOrdersLevelsHighlightsUltraAndAdaptsToModel() {
         val landscape = InstrumentationRegistry.getArguments().getString("landscape") == "true"
         compose.activityRule.scenario.onActivity { it.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
@@ -77,6 +95,8 @@ class ExecutionSettingsTest {
     }
 
     @Test fun selectingModelAndSlidingPermissionSavesAllThreeChoices() {
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        compose.waitUntil(5_000) { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
         fun model(id: String, name: String, efforts: List<String>) = JSONObject().put("id", id).put("model", id).put("displayName", name)
             .put("defaultReasoningEffort", "medium").put("supportedReasoningEfforts", JSONArray(efforts.map { JSONObject().put("reasoningEffort", it) }))
         var saved: List<String>? = null
@@ -100,6 +120,8 @@ class ExecutionSettingsTest {
                 else -> slider.performSemanticsAction(SemanticsActions.SetProgress) { it(index.toFloat()) }
             }
             slider.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, label))
+            if (mode == "full-access") compose.onNodeWithTag("full-access-track", useUnmergedTree = true).assertIsDisplayed()
+            else compose.onNodeWithTag("full-access-track", useUnmergedTree = true).assertDoesNotExist()
             assertEquals(previouslySaved, saved)
             compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
             compose.onNodeWithText("保存设置").performClick()
@@ -107,7 +129,7 @@ class ExecutionSettingsTest {
         }
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File) ?: instrumentation.targetContext.cacheDir
+        val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File) ?: instrumentation.targetContext.getExternalFilesDir(null)!!
         output.mkdirs()
         instrumentation.uiAutomation.takeScreenshot().let { bitmap ->
             File(output, "execution-settings.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }

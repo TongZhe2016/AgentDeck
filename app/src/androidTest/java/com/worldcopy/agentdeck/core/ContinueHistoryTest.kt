@@ -59,12 +59,20 @@ class ContinueHistoryTest {
         compose.waitUntil(10_000) { !vm.optionsLoading && vm.models.isNotEmpty() }
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-slider"))
         compose.onNodeWithTag("effort-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("permission-slider"))
+        compose.onNodeWithTag("permission-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(4f) }
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
         compose.onNodeWithText("保存设置").performClick()
         compose.waitUntil(10_000) { !vm.busy && service.writes.size == 2 }
         assertEquals(listOf("/v1/sessions/thread/resume", "/v1/sessions/thread/settings"), service.writes.map { it.first })
         assertTrue(vm.selected!!.getBoolean("managed"))
         assertEquals("low", vm.selected!!.getJSONObject("executionSettings").getString("effort"))
+        assertEquals("full-access", vm.selected!!.getJSONObject("executionSettings").getString("permissionMode"))
+        compose.onNodeWithText("完全访问", useUnmergedTree = true).assertIsDisplayed()
+        instrumentation.uiAutomation.takeScreenshot().let { bitmap ->
+            File(output.parentFile, "full-access-inline.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
         assertTrue(vm.projectSessions.first().getBoolean("managed"))
         assertEquals("初始回复", vm.messages.single().text)
         compose.runOnIdle { vm.updateDraft("Continue with selected settings") }

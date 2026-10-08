@@ -78,7 +78,7 @@ fun ExecutionSettingsBar(vm: WorkspaceViewModel, enabled: Boolean) {
         Text(effortLabel(effort), Modifier.weight(0.25f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge, color = color)
         Text(permissionLabel, Modifier.weight(0.30f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.labelLarge, color = color)
+            style = MaterialTheme.typography.labelLarge, color = if (permission == "full-access") MaterialTheme.colorScheme.error else color)
     }
     if (open) ExecutionSettingsSheet(vm.models, vm.optionsLoading, vm.optionsError,
         model, effort, permission, vm.busy, dismiss = { open = false }, retry = vm::loadExecutionOptions,
@@ -126,7 +126,8 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("权限", style = MaterialTheme.typography.titleMedium)
-                    Text(permissionLabels.getValue(permission), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(permissionLabels.getValue(permission), style = MaterialTheme.typography.labelLarge,
+                        color = if (permission == "full-access") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 }
                 Slider(
                     value = permissionLevels.indexOf(permission).toFloat(),
@@ -134,6 +135,14 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                     valueRange = 0f..permissionLevels.lastIndex.toFloat(),
                     steps = permissionLevels.size - 2,
                     enabled = !saving,
+                    colors = if (permission == "full-access") SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.error, activeTrackColor = MaterialTheme.colorScheme.error,
+                        activeTickColor = MaterialTheme.colorScheme.onError,
+                    ) else SliderDefaults.colors(),
+                    track = { state ->
+                        if (permission == "full-access") FullAccessTrack(state.steps)
+                        else SliderDefaults.Track(sliderState = state, enabled = !saving)
+                    },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("permission-slider").semantics {
                         contentDescription = "权限范围"
                         stateDescription = permissionLabels.getValue(permission)

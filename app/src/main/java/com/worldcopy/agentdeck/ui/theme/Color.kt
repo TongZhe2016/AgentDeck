@@ -7,3 +7,6 @@ val DeckMint = Color(0xFF56E0C2)
 val DeckTeal = Color(0xFF006B5B)
 val DeckPaper = Color(0xFFF5F8FA)
 val DeckInk = Color(0xFF172632)
+
+val DeckWarningRed = Color(0xFFB3261E)
+val DeckWarningYellow = Color(0xFFFFD54F)
