@@ -59,8 +59,7 @@ fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewMode
             else -> workspace?.connection ?: sshStatus ?: "未同步"
         }, partial = workspace?.hasMoreProjects == true)
     }
-    ProjectList(groups, hosts, statuses, busyHosts = workspaces.filterValues { it.busy }.keys +
-        if (connecting) hosts.map { it.id }.toSet() else emptySet(), open = open,
+    ProjectList(groups, hosts, statuses, busyHosts = workspaces.filterValues { it.busy }.keys + connectingHosts, open = open,
         manageHost = { menuHost = it },
         header = {
             PageHeading("项目", "${groups.size} 个项目 · ${hosts.size} 台主机") {

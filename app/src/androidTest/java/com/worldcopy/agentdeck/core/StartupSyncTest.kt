@@ -53,6 +53,8 @@ class StartupSyncTest {
                 await { !app.hosts.busy && app.hosts.hosts.any { it.id == fixture.id } }
             }
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                lateinit var confirmed: Host
+                lateinit var remaining: Host
                 await {
                     !app.hosts.busy && app.workspaces[host.id]?.let { workspace ->
                         workspace.online && !workspace.busy && workspace.projectSessions.any { it.optString("cwd") == project }
@@ -62,15 +64,17 @@ class StartupSyncTest {
                     assertEquals("连接失败", app.hosts.statuses[failed.id])
                     assertNotNull(app.workspace(failed.id).error)
                     assertEquals("offline-fixture", app.workspace(failed.id).projectSessions.single().getString("id"))
-                    assertEquals(first.id, app.hosts.confirmation!!.first.id)
-                    assertEquals("等待核对主机身份", app.hosts.statuses[second.id])
+                    confirmed = app.hosts.confirmation!!.first
+                    assertTrue(confirmed.id in listOf(first.id, second.id))
+                    remaining = if (confirmed.id == first.id) second else first
+                    assertEquals("等待核对主机身份", app.hosts.statuses[remaining.id])
                     assertNotNull(app.hosts.store.vault.get("token-${host.id}"))
                     app.hosts.trustHost()
                 }
-                await { !app.hosts.busy && app.workspaces[first.id]?.let { it.online && !it.busy } == true }
+                await { !app.hosts.busy && app.workspaces[confirmed.id]?.let { it.online && !it.busy } == true }
                 onMain {
-                    assertEquals(second.id, app.hosts.confirmation!!.first.id)
-                    assertNotNull(app.hosts.hosts.first { it.id == first.id }.trustedHostKey)
+                    assertEquals(remaining.id, app.hosts.confirmation!!.first.id)
+                    assertNotNull(app.hosts.hosts.first { it.id == confirmed.id }.trustedHostKey)
                     app.hosts.dismissConfirmation()
                 }
                 val workspace = app.workspace(host.id)

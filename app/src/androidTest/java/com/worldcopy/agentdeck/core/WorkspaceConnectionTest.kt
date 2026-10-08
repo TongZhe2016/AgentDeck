@@ -85,6 +85,7 @@ class WorkspaceConnectionTest {
 
 internal class WorkspaceFixtureService(
     val historyItems: List<JSONObject> = listOf(JSONObject().put("id", "initial").put("type", "agentMessage").put("text", "初始回复")),
+    private val beforeList: () -> Unit = {},
 ) : Closeable {
     private val server = ServerSocket(0)
     val port = server.localPort
@@ -135,6 +136,7 @@ internal class WorkspaceFixtureService(
             }
             path.startsWith("/v1/sessions") -> {
                 lists.incrementAndGet()
+                beforeList()
                 val more = path.contains("cursor=")
                 JSONObject().put("data", JSONArray(listOf(JSONObject().put("id", if (more) "older" else "thread").put("cwd", "/fixture"))))
                     .put("nextCursor", if (more) JSONObject.NULL else "next")

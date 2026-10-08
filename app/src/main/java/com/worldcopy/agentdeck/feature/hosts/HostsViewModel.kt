@@ -15,10 +15,13 @@ import com.worldcopy.agentdeck.core.ssh.SshKeyType
 import com.worldcopy.agentdeck.core.storage.HostStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.userauth.UserAuthException
+import java.util.concurrent.ConcurrentHashMap
 
 class HostsViewModel(application: Application) : AndroidViewModel(application) {
     val store = HostStore(application)
@@ -30,8 +33,9 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     var connectingHosts by mutableStateOf<Set<String>>(emptySet()); private set
     private var confirmations by mutableStateOf<List<Pair<Host, HostKeyConfirmation>>>(emptyList())
     val confirmation get() = confirmations.firstOrNull()
-    private val connections = mutableMapOf<String, SshConnection>()
-    private val ports = mutableMapOf<String, Int>()
+    private val connections = ConcurrentHashMap<String, SshConnection>()
+    private val ports = ConcurrentHashMap<String, Int>()
+    private val syncSlots = Semaphore(10)
 
     private fun refresh() { hosts = store.hosts(); identities = store.identities() }
     fun dismissMessage() { message = null }
@@ -135,7 +139,8 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: HostKeyConfirmation) {
             requestConfirmation(host, e)
             statuses = statuses + (host.id to "等待核对主机身份")
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
             statuses = statuses + (host.id to "连接失败")
             if (e is UserAuthException) error("认证失败，请检查用户名、密码或电脑端的公钥授权")
             throw e
@@ -146,28 +151,37 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         syncHosts(host?.let { listOf(it) } ?: hosts, refreshConnected)
     }
 
-    private suspend fun syncHosts(targets: List<Host>, refreshConnected: Boolean = true) {
-        val app = getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication
-        for (target in targets) {
-            val workspace = app.workspace(target.id)
-            if (!refreshConnected && workspace.maintainsConnection) continue
-            connectingHosts = connectingHosts + target.id
-            try {
-                if (workspace.connection == "服务未连接") {
-                    workspace.openOffline(target.id)
-                    while (workspace.busy) delay(50)
-                }
-                if (workspace.busy) continue
-                workspace.dismissError()
-                if (workspace.online) { workspace.refreshSessions(); continue }
-                if (connections[target.id]?.connected != true) connectHost(target)
-                if (connections[target.id]?.connected != true) continue
-                val token = serviceToken(target.id)
-                workspace.connect(target.id, localPort(target.id), token) { reconnectService(target.id) }
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { workspace.reportProjectSyncError(e.message ?: "同步失败") }
-            finally { connectingHosts = connectingHosts - target.id }
+    private suspend fun syncHosts(targets: List<Host>, refreshConnected: Boolean = true) = coroutineScope {
+        targets.forEach { target ->
+            launch { syncSlots.withPermit { syncHost(target, refreshConnected) } }
         }
+    }
+
+    private suspend fun syncHost(target: Host, refreshConnected: Boolean) {
+        val app = getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication
+        val workspace = app.workspace(target.id)
+        if (!refreshConnected && workspace.maintainsConnection) return
+        connectingHosts = connectingHosts + target.id
+        try {
+            if (workspace.connection == "服务未连接") {
+                workspace.openOffline(target.id)
+                workspace.awaitWork()
+            }
+            if (workspace.busy) return
+            workspace.dismissError()
+            if (workspace.online) {
+                workspace.refreshSessions()
+                workspace.awaitWork()
+                return
+            }
+            if (connections[target.id]?.connected != true) connectHost(target)
+            if (connections[target.id]?.connected != true) return
+            val token = serviceToken(target.id)
+            workspace.connect(target.id, localPort(target.id), token) { reconnectService(target.id) }
+            workspace.awaitWork()
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { workspace.reportProjectSyncError(e.message ?: "同步失败") }
+        finally { connectingHosts = connectingHosts - target.id }
     }
 
     fun localPort(hostId: String): Int {

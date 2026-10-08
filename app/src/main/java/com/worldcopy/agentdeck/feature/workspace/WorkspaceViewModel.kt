@@ -180,6 +180,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun cancelWork() { workJob?.cancel() }
+    suspend fun awaitWork() { workJob?.join() }
     fun searchHistory(query: String, more: Boolean = false, currentProject: Boolean = false) = work {
         val service = api ?: error("正文搜索需要连接电脑")
         val body = JSONObject().put("query", query).put("project", if (currentProject) project else "")
