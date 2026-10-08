@@ -31,3 +31,9 @@ API 36 模拟器完成执行卡片的默认折叠、指令列表与详情展开�
 运行入口：`npm --prefix host-service test`；`./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`；设备测试显式指定 `ANDROID_SERIAL=emulator-5554`，运行 `ExecutionCardTest`、`ExecutionSettingsTest`、`WorkspaceConnectionTest` 和 `ProjectHomeTest`。本次先前的模拟器快照 offline 问题通过冷启动解决。
 
 客户端和电脑服务需要一同更新。APK 为本地 debug 构建，未进行正式签名发布，也未替换现有电脑常驻服务。
+
+## 权限滑动条（2026-10-08）
+
+执行设置中的权限改为 Material 3 五档滑动条，从左至右为只读、未信任、请求批准、不请求批准、完全访问。两端标明范围，右上方显示当前档位，下方同步显示该档位的具体说明。拖动、点按轨道及无障碍调节均使用原生 Slider；点击保存后用于下一轮执行。
+
+Android debug 与设备测试 APK 构建通过。API 36 的 `emulator-5554` 上，`ExecutionSettingsTest` 验证滑块向左／向右拖动、中间档位的无障碍调节、五种权限保存值，以及拖动不会提前调用保存。375dp 竖屏浅色模式、750dp 横屏深色模式（2 倍字体、关闭动画）均通过，并检查截图中滑块、说明与保存按钮的可见性。本次只更新 Android 界面，沿用已部署的服务端权限接口；手机安装待用户重新连接后进行。截图与日志位于忽略的 `.local/permission-slider/`。

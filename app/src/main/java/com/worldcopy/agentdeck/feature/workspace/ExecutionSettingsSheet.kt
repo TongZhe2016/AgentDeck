@@ -10,11 +10,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
-internal val permissionLabels = linkedMapOf("read-only" to "只读", "on-request" to "请求批准", "untrusted" to "未信任", "never" to "不请求批准", "full-access" to "完全访问")
+internal val permissionLabels = linkedMapOf("read-only" to "只读", "untrusted" to "未信任", "on-request" to "请求批准", "never" to "不请求批准", "full-access" to "完全访问")
+private val permissionLevels = permissionLabels.keys.toList()
 internal fun effortLabel(value: String) = when (value) {
     "none" -> "无"; "minimal" -> "最低"; "low" -> "低"; "medium" -> "中"; "high" -> "高"
     "xhigh" -> "极高"; "max" -> "最大"; "ultra" -> "超高"; "" -> "模型默认"; else -> value
@@ -83,10 +88,26 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                 }
             }
             item {
-                Text("权限", style = MaterialTheme.typography.titleMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    permissionLabels.forEach { (value, label) -> FilterChip(selected = permission == value, onClick = { permission = value }, enabled = !saving, label = { Text(label) }) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("权限", style = MaterialTheme.typography.titleMedium)
+                    Text(permissionLabels.getValue(permission), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 }
+                Slider(
+                    value = permissionLevels.indexOf(permission).toFloat(),
+                    onValueChange = { permission = permissionLevels[it.roundToInt()] },
+                    valueRange = 0f..permissionLevels.lastIndex.toFloat(),
+                    steps = permissionLevels.size - 2,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("permission-slider").semantics {
+                        contentDescription = "权限范围"
+                        stateDescription = permissionLabels.getValue(permission)
+                    },
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("只读", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("完全访问", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(8.dp))
                 Text(when (permission) {
                     "read-only" -> "只读取文件，不允许修改。"
                     "untrusted" -> "除可信读取操作外，执行前请求批准。"
