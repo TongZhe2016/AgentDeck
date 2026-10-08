@@ -120,6 +120,7 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
 @Composable
 private fun Chat(vm: WorkspaceViewModel) {
     val thread = vm.selected ?: return
+    val onMessageLink = rememberMessageLinkHandler(vm)
     val listState = rememberLazyListState()
     var positioned by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -170,7 +171,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                     } else Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(start = if (item.role == "你") 24.dp else 0.dp)) {
                         Column(Modifier.padding(12.dp)) {
-                            SelectionContainer { MessageText(item.text) }
+                            SelectionContainer { MessageText(item.text, onMessageLink) }
                         }
                     }
                 }

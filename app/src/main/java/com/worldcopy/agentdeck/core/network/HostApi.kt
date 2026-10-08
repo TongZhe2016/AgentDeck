@@ -53,6 +53,25 @@ class HostApi(private val port: Int, private val token: String) {
         require(file.length() <= 10 * 1024 * 1024) { "单个附件上限 10 MiB" }
         execute(request("attachments/$id", mapOf("threadId" to threadId)).post(file.readBytes().toRequestBody(mime.toMediaType())).build())
     }
+    suspend fun downloadFile(path: String, cwd: String, output: java.io.OutputStream): Long = suspendCancellableCoroutine { continuation ->
+        val call = client.newCall(request("files", mapOf("path" to path, "cwd" to cwd)).build())
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bytes = response.use {
+                        if (it.code == 401) throw HostApiAuthException()
+                        if (it.code == 404) error("此电脑服务尚未支持文件下载，请更新电脑服务")
+                        if (!it.isSuccessful) error(JSONObject(it.body?.string().orEmpty()).optString("error", "下载失败 (${it.code})"))
+                        val body = it.body ?: error("文件响应为空")
+                        body.byteStream().use { input -> input.copyTo(output) }
+                    }
+                    if (continuation.isActive) continuation.resume(bytes)
+                } catch (e: Exception) { if (continuation.isActive) continuation.resumeWithException(e) }
+            }
+        })
+    }
     suspend fun removeAttachment(id: String) = withContext(Dispatchers.IO) { execute(request("attachments/$id").delete().build()) }
     suspend fun transcribe(id: String, threadId: String): String = withContext(Dispatchers.IO) {
         val body = JSONObject().put("attachmentId", id).put("threadId", threadId)

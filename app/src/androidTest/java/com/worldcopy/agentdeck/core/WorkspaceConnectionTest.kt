@@ -93,6 +93,8 @@ internal class WorkspaceFixtureService(
     val lists = AtomicInteger()
     val histories = AtomicInteger()
     val streams = AtomicInteger()
+    var requestedFile: android.net.Uri? = null
+    val fileBytes = ByteArray(1024 * 1024) { (it % 251).toByte() }
     val events = LinkedBlockingQueue<String>()
     var managed = initiallyManaged
     var refuseResume = false
@@ -121,6 +123,13 @@ internal class WorkspaceFixtureService(
         var offset = 0
         while (offset < length) offset += input.read(body, offset, length - offset)
         val output = socket.getOutputStream()
+        if (path.startsWith("/v1/files?")) {
+            requestedFile = android.net.Uri.parse(path)
+            val missing = requestedFile!!.getQueryParameter("path") == "missing"
+            val data = if (missing) "{\"error\":\"文件不存在\"}".toByteArray() else fileBytes
+            output.write("HTTP/1.1 ${if (missing) "400 Bad Request" else "200 OK"}\r\nContent-Type: application/octet-stream\r\nContent-Length: ${data.size}\r\nConnection: close\r\n\r\n".toByteArray())
+            output.write(data); output.flush(); return
+        }
         if (path.startsWith("/v1/events")) {
             streams.incrementAndGet()
             output.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n".toByteArray()); output.flush()

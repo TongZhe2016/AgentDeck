@@ -53,6 +53,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     var models by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var optionsLoading by mutableStateOf(false); private set
     var optionsError by mutableStateOf<String?>(null); private set
+    var downloading by mutableStateOf(false); private set
+    var downloadedName by mutableStateOf<String?>(null); private set
+    private var downloadJob: Job? = null
     private var optionsJob: Job? = null
     val maintainsConnection get() = eventsJob?.isActive == true && api != null
     private var historyCursor by mutableStateOf<String?>(null)
@@ -88,6 +91,30 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearDetail() { detail = null }
     fun clearSession() { saveDraft(); selected = null; messages = emptyList() }
     fun reportError(message: String) { error = message }
+    fun dismissDownload() { downloadedName = null }
+    fun cancelDownload() { downloadJob?.cancel() }
+    fun downloadFile(path: String, cwd: String, destination: android.net.Uri) {
+        if (downloading) return
+        val service = api
+        downloadJob = viewModelScope.launch {
+            downloading = true; downloadedName = null
+            val resolver = getApplication<Application>().contentResolver
+            try {
+                check(service != null) { "连接电脑后可下载文件" }
+                withContext(Dispatchers.IO) {
+                    val output = resolver.openOutputStream(destination, "wt") ?: error("无法写入所选位置")
+                    output.use { service.downloadFile(path, cwd, it) }
+                }
+                downloadedName = path.substringAfterLast('/')
+            } catch (e: Exception) {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { android.provider.DocumentsContract.deleteDocument(resolver, destination) }
+                }
+                if (e is CancellationException) throw e
+                reportError(e.message ?: "文件下载失败")
+            } finally { downloading = false }
+        }
+    }
     fun reportProjectSyncError(message: String) { projectSyncError = message; reportError(message) }
     fun attachImage(uri: android.net.Uri) = work { addImage(uri) }
     fun importShare(text: String, images: List<android.net.Uri>) = work {

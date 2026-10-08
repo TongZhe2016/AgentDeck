@@ -38,6 +38,11 @@ android {
 }
 
 dependencies {
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.tables)
+    implementation(libs.commonmark.strikethrough)
+    implementation(libs.commonmark.autolink)
+    implementation(libs.commonmark.tasks)
     implementation(libs.sshj)
     implementation(libs.bouncycastle)
     implementation(libs.bouncycastle.pem)

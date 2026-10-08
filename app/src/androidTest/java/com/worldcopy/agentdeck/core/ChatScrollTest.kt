@@ -1,6 +1,8 @@
 package com.worldcopy.agentdeck.core
 
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.worldcopy.agentdeck.AgentDeckApplication
@@ -17,6 +19,18 @@ import java.util.UUID
 class ChatScrollTest {
     @get:Rule val compose = createComposeRule()
 
+    private fun assertLastLineVisible(text: String) {
+        val target = compose.onNodeWithText(text, substring = true)
+        val layout = mutableListOf<TextLayoutResult>()
+        target.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+        val node = target.fetchSemanticsNode()
+        val last = layout.single().getBoundingBox(layout.single().layoutInput.text.text.lastIndex)
+            .translate(node.positionInRoot)
+        val viewport = compose.onNodeWithTag("chat-messages").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("Last line is above viewport", last.top >= viewport.top)
+        org.junit.Assert.assertTrue("Last line is below viewport", last.bottom <= viewport.bottom)
+    }
+
     @Test fun opensAtLatestFollowsStreamingAndPreservesHistoryReading() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as AgentDeckApplication
         val hostId = "scroll-${UUID.randomUUID()}"
@@ -32,7 +46,7 @@ class ChatScrollTest {
                 compose.waitUntil(10_000) { vm.online && !vm.busy }
                 compose.runOnIdle { vm.openSession(JSONObject().put("id", "thread").put("cwd", "/fixture")) }
                 compose.waitUntil(10_000) { !vm.busy && vm.messages.size == 51 }
-                compose.onNodeWithText("最新消息末尾").assertIsDisplayed()
+                assertLastLineVisible("最新消息末尾")
                 compose.onNodeWithText("历史消息 1").assertDoesNotExist()
 
                 var sequence = 0
@@ -43,7 +57,7 @@ class ChatScrollTest {
                 }
                 event("item/agentMessage/delta", JSONObject().put("itemId", "latest").put("delta", "\n流式回复末尾"))
                 compose.waitUntil(10_000) { vm.messages.last().text.endsWith("流式回复末尾") }
-                compose.onNodeWithText("流式回复末尾").assertIsDisplayed()
+                assertLastLineVisible("流式回复末尾")
                 event("item/completed", JSONObject().put("item", JSONObject().put("id", "new")
                     .put("type", "agentMessage").put("text", "新到的消息")))
                 compose.waitUntil(10_000) { vm.messages.last().id == "new" }
