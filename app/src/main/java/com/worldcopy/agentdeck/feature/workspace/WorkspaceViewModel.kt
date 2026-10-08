@@ -16,8 +16,6 @@ fun JSONObject.string(name: String): String = if (isNull(name)) "" else optStrin
 
 data class DraftAttachment(val id: String, val path: String, val mime: String, val uploaded: Boolean = false)
 
-data class ChatItem(val id: String, val role: String, val text: String)
-
 class WorkspaceViewModel(application: Application) : AndroidViewModel(application) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
@@ -261,7 +259,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                             val result = api!!.get("sessions/${thread.getString("id")}")
                             selected = result
                             historyCursor = result.string("nextCursor").ifBlank { null }
-                            messages = result.optJSONArray("turns").objects().flatMap { it.optJSONArray("items").objects().mapNotNull(::parseItem) }
+                            messages = parseTurns(result)
                             cacheMessages()
                           }
                         }
@@ -295,12 +293,16 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 if (params.optString("threadId") != selected?.optString("id")) return
                 when (data.optString("method")) {
                     "item/started", "item/completed" -> params.optJSONObject("item")?.let { item ->
-                        parseItem(item)?.let { parsed -> messages = if (messages.any { it.id == parsed.id }) messages.map { if (it.id == parsed.id) parsed else it } else messages + parsed }
+                        parseItem(item, params.string("turnId"))?.let { parsed -> messages = if (messages.any { it.id == parsed.id }) messages.map { if (it.id == parsed.id) parsed else it } else messages + parsed }
                     }
                     "item/agentMessage/delta" -> {
                         val id = params.getString("itemId"); val old = messages.find { it.id == id }
-                        val updated = ChatItem(id, "Agent", boundedText((old?.text ?: "") + params.optString("delta"), 64_000))
+                        val updated = (old ?: ChatItem(id, "Agent", "", turnId = params.string("turnId"))).copy(text = boundedText((old?.text ?: "") + params.optString("delta"), 64_000))
                         messages = if (old == null) messages + updated else messages.map { if (it.id == id) updated else it }
+                    }
+                    "item/commandExecution/outputDelta" -> {
+                        val id = params.string("itemId")
+                        messages = messages.map { if (it.id == id) it.copy(text = boundedText(it.text + params.string("delta"), 32_000)) else it }
                     }
                     "turn/completed" -> cacheMessages()
                 }
@@ -342,7 +344,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun openSession(session: JSONObject) = work {
         showSession(session)
         file("history-${session.getString("id")}").takeIf { it.exists() }?.let { cached ->
-            messages = JSONObject(cached.readText()).optJSONArray("messages").objects().map { ChatItem(it.getString("id"), it.getString("role"), it.getString("text")) }
+            messages = JSONObject(cached.readText()).optJSONArray("messages").objects().map { ChatItem(it.getString("id"), it.getString("role"), it.getString("text"), it.string("turnId"),
+                execution = if (it.has("execution")) it.optBoolean("execution") else it.string("role").let { role -> role.startsWith("命令") || role.startsWith("工具") || role == "文件变更" || role == "计划" },
+                summary = it.string("summary"), status = it.string("status")) }
         }
         if (api == null) return@work
         val result = api!!.get("sessions/${session.getString("id")}")
@@ -350,13 +354,13 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val summary = JSONObject(result.toString()).apply { remove("turns") }
         projectSessions = projectSessions.map { if (it.string("id") == result.string("id")) summary else it }
         cacheSessions()
-        messages = result.optJSONArray("turns").objects().flatMap { it.optJSONArray("items").objects().mapNotNull(::parseItem) }
+        messages = parseTurns(result)
         cacheMessages()
     }
     fun olderHistory() = work {
         val id = selected?.getString("id") ?: return@work
         val result = api!!.get("sessions/$id", mapOf("cursor" to (historyCursor ?: return@work)))
-        val older = result.optJSONArray("turns").objects().flatMap { it.optJSONArray("items").objects().mapNotNull(::parseItem) }
+        val older = parseTurns(result)
         messages = (older + messages).distinctBy { it.id }
         historyCursor = result.string("nextCursor").ifBlank { null }
         cacheMessages()
@@ -444,17 +448,39 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private fun cacheMessages() {
         val id = selected?.optString("id") ?: return
         writeCache("history-$id", JSONObject().put("messages", JSONArray(messages.takeLast(500).map {
-            JSONObject().put("id", it.id).put("role", it.role).put("text", it.text)
+            JSONObject().put("id", it.id).put("role", it.role).put("text", it.text).put("turnId", it.turnId)
+                .put("execution", it.execution).put("summary", it.summary).put("status", it.status)
         })).toString())
     }
-    private fun parseItem(item: JSONObject): ChatItem? {
+    private fun parseTurns(result: JSONObject): List<ChatItem> = result.optJSONArray("turns").objects().flatMap { turn ->
+        turn.optJSONArray("items").objects().mapNotNull { parseItem(it, turn.string("id")) }
+    }
+    private fun parseItem(item: JSONObject, turnId: String): ChatItem? {
         val type = item.optString("type"); val id = item.optString("id")
+        val status = item.string("status")
         return when (type) {
-            "userMessage" -> ChatItem(id, "你", item.optJSONArray("content").objects().joinToString("\n") { if (it.optString("type").contains("Audio", true)) "[录音附件]" else if (it.optString("type").contains("Image", true)) "[图片附件]" else it.optString("text", "[附件]") })
-            "agentMessage", "plan" -> ChatItem(id, if (type == "plan") "计划" else "Agent", boundedText(item.optString("text"), 64_000))
-            "commandExecution" -> ChatItem(id, "命令 · ${item.optString("status")}", item.optString("command") + "\n" + boundedText(item.string("aggregatedOutput"), 16_000))
-            "fileChange" -> ChatItem(id, "文件变更", item.optJSONArray("changes").objects().joinToString("\n") { it.optString("path") })
-            "mcpToolCall" -> ChatItem(id, "工具 · ${item.optString("status")}", "${item.optString("server")}/${item.optString("tool")}")
+            "userMessage" -> ChatItem(id, "你", item.optJSONArray("content").objects().joinToString("\n") { if (it.optString("type").contains("Audio", true)) "[录音附件]" else if (it.optString("type").contains("Image", true)) "[图片附件]" else it.optString("text", "[附件]") }, turnId)
+            "agentMessage", "plan" -> ChatItem(id, if (type == "plan") "计划" else "Agent", boundedText(item.optString("text"), 64_000), turnId,
+                execution = type == "plan")
+            "commandExecution" -> {
+                val action = item.optJSONArray("commandActions").objects().firstOrNull()
+                val summary = when (action?.string("type")) {
+                    "read" -> "读取 ${action.string("name").ifBlank { action.string("path").substringAfterLast('/') }}"
+                    "listFiles" -> "查看文件列表"
+                    "search" -> "搜索代码"
+                    else -> "执行命令"
+                }
+                ChatItem(id, "命令", item.optString("command") + "\n" + boundedText(item.string("aggregatedOutput"), 16_000), turnId,
+                    summary = oneLineSummary(summary), status = status)
+            }
+            "fileChange" -> {
+                val changes = item.optJSONArray("changes").objects()
+                ChatItem(id, "文件变更", boundedText(changes.joinToString("\n") { it.string("path") + "\n" + it.string("diff") }, 16_000), turnId,
+                    summary = if (changes.size == 1) "更新 ${changes.first().string("path").substringAfterLast('/')}" else "更新 ${changes.size} 个文件", status = status)
+            }
+            "mcpToolCall" -> ChatItem(id, "工具", boundedText(item.toString(2), 16_000), turnId,
+                summary = oneLineSummary("调用 ${item.string("tool")}"), status = status)
+            "webSearch" -> ChatItem(id, "工具", item.toString(2), turnId, summary = "搜索网页", status = status)
             else -> null
         }
     }

@@ -126,6 +126,7 @@ private fun Chat(vm: WorkspaceViewModel) {
             listState.scrollToItem(layout.totalItemsCount - 1)
         }
     }
+    val timeline = remember(vm.messages) { executionTimeline(vm.messages) }
     val runs = vm.runs.filter { it.optString("threadId") == thread.getString("id") }
     val active = runs.firstOrNull { it.optString("state") in listOf("queued", "running", "waiting_approval", "waiting_input", "unknown") }
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -136,18 +137,16 @@ private fun Chat(vm: WorkspaceViewModel) {
                 if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
             }
             if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
-            items(vm.messages, key = { it.id }) { item ->
-                var expanded by remember(item.id) { mutableStateOf(false) }
-                val tool = item.role.startsWith("命令") || item.role.startsWith("工具")
-                Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+            items(timeline, key = { it.key }) { entry ->
+                val item = entry.message
+                if (item == null) {
+                    val run = runs.firstOrNull { it.string("turnId") == entry.turnId }
+                    val latest = timeline.lastOrNull { it.message == null && it.turnId == entry.turnId }?.key == entry.key
+                    ExecutionCard(entry.key, entry.steps, if (latest) run?.string("state") ?: "completed" else "completed")
+                } else Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                     shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(start = if (item.role == "你") 24.dp else 0.dp)) {
                     Column(Modifier.padding(12.dp)) {
-                        Text(item.role, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        SelectionContainer {
-                            if (tool) Text(if (!expanded) item.text.take(300) else item.text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-                            else MessageText(item.text)
-                        }
-                        if (tool && item.text.length > 300) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开输出") }
+                        SelectionContainer { MessageText(item.text) }
                     }
                 }
             }
@@ -155,7 +154,9 @@ private fun Chat(vm: WorkspaceViewModel) {
                 ApprovalCard(vm, approval)
             }
             if (active != null) item {
-                Text("执行状态：${stateName(active.optString("state"))}")
+                if (vm.messages.none { it.execution && it.turnId == active.string("turnId") }) {
+                    ExecutionCard(active.string("turnId").ifBlank { active.getString("id") }, emptyList(), active.string("state"))
+                }
                 active.string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (active.optString("state") == "unknown") TextButton(onClick = { vm.reconcile(active) }, enabled = !vm.busy) { Text("核实执行结果") }
                 else TextButton(onClick = { vm.cancel(active) }, enabled = !vm.busy && active.string("turnId").isNotBlank()) { Text("取消本轮执行") }
@@ -197,9 +198,6 @@ private fun Chat(vm: WorkspaceViewModel) {
     }
     if (resume) ConfirmDialog("恢复原有会话", "请确认电脑上的原会话已停止。恢复后将由 AgentDeck 服务继续执行。", { resume = false }) { resume = false; vm.resume() }
 }
-
-private fun stateName(state: String) = mapOf("queued" to "已排队", "running" to "执行中", "waiting_approval" to "等待审批", "waiting_input" to "等待回答",
-    "completed" to "本轮完成", "failed" to "失败", "interrupted" to "已中断", "unknown" to "待核实")[state] ?: state
 
 @Composable
 private fun ApprovalCard(vm: WorkspaceViewModel, approval: JSONObject) {
