@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Codex, RpcError, type RpcMessage } from '../providers/codex.js';
 import { Store } from '../storage/store.js';
 import { Attachments } from '../attachments/attachments.js';
+import { threadSettings, turnSettings, effectiveSettings } from '../providers/execution-settings.js';
 
 const approvalMethods = new Set(['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/tool/requestUserInput']);
 export class Coordinator {
@@ -72,10 +73,11 @@ export class Coordinator {
       if (!loaded.data.includes(threadId)) {
         const current = await this.codex.request('thread/read', { threadId, includeTurns: false });
         if (current.thread.status?.type === 'active') throw new Error('会话正由另一端执行');
-        await this.codex.request('thread/resume', { threadId, approvalPolicy: 'on-request', sandbox: 'workspace-write' });
+        const resumed = await this.codex.request('thread/resume', { threadId, excludeTurns: true, ...threadSettings(this.store.settings(threadId)) });
+        this.store.saveSettings(threadId, await effectiveSettings(this.codex, resumed));
       }
       dispatched = true;
-      const result = await this.codex.request('turn/start', { threadId, input: [{ type: 'text', text }, ...inputs] });
+      const result = await this.codex.request('turn/start', { threadId, input: [{ type: 'text', text }, ...inputs], ...turnSettings(this.store.settings(threadId)) });
       const current = this.store.run(run.id)!;
       if (current.state === 'queued') this.store.updateRun(run.id, { turnId: result.turn.id, state: 'running' });
     } catch (e) { this.store.updateRun(run.id, { state: dispatched && !(e instanceof RpcError) ? 'unknown' : 'failed', error: (e as Error).message }); }

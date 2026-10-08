@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import type { ExecutionSettings } from '../providers/execution-settings.js';
 
 export type Run = { id: string; requestId: string; threadId: string; turnId: string | null; state: string; text: string; error: string | null; createdAt: string };
 export type Approval = { id: string; runId: string; method: string; params: any; state: string };
@@ -16,6 +17,7 @@ export class Store extends EventEmitter {
       CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, data TEXT NOT NULL, createdAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, runId TEXT NOT NULL, method TEXT NOT NULL, params TEXT NOT NULL, state TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS managed (threadId TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS session_settings (threadId TEXT PRIMARY KEY, settings TEXT NOT NULL);
     `);
     const interrupted = this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','running','waiting_approval','waiting_input')").all() as Run[];
     for (const run of interrupted) this.updateRun(run.id, { state: 'unknown', error: '电脑服务重启，执行结果待核实；不会自动重发。' });
@@ -30,6 +32,13 @@ export class Store extends EventEmitter {
   }
   managed(threadId: string) { return !!this.db.prepare('SELECT 1 FROM managed WHERE threadId=?').get(threadId); }
   markManaged(threadId: string) { this.db.prepare('INSERT OR IGNORE INTO managed VALUES (?)').run(threadId); }
+  settings(threadId: string): ExecutionSettings | undefined {
+    const row = this.db.prepare('SELECT settings FROM session_settings WHERE threadId=?').get(threadId);
+    return row ? JSON.parse(String(row.settings)) : undefined;
+  }
+  saveSettings(threadId: string, settings: ExecutionSettings) {
+    this.db.prepare('INSERT INTO session_settings VALUES (?,?) ON CONFLICT(threadId) DO UPDATE SET settings=excluded.settings').run(threadId, JSON.stringify(settings));
+  }
   runByRequest(id: string) { return this.db.prepare('SELECT * FROM runs WHERE requestId=?').get(id) as Run | undefined; }
   run(id: string) { return this.db.prepare('SELECT * FROM runs WHERE id=?').get(id) as Run | undefined; }
   runs() { return this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','running','waiting_approval','waiting_input','unknown') OR id IN (SELECT id FROM runs ORDER BY createdAt DESC LIMIT 100) ORDER BY createdAt DESC").all() as Run[]; }

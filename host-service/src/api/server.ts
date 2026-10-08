@@ -6,6 +6,7 @@ import * as git from '../git/git.js';
 import { Attachments } from '../attachments/attachments.js';
 import { Transcription } from '../attachments/transcription.js';
 import { search } from '../history/search.js';
+import { executionOptions, validateSettings, threadSettings, effectiveSettings } from '../providers/execution-settings.js';
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = []; let size = 0;
@@ -50,6 +51,7 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         let cursor = Number(url.searchParams.get('after') ?? req.headers['last-event-id'] ?? 0);
         if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > store.cursor()) throw new Error('事件游标无效，请重新获取快照');
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+        res.flushHeaders();
         let closed = false;
         const pump = () => {
           if (closed || res.writableNeedDrain) return;
@@ -72,6 +74,7 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       if (path === '/v1/git/graph') { json(res, await git.graph(text(cwd, '项目路径'), url.searchParams.get('scope') ?? 'head', url.searchParams.get('cursor') ?? undefined)); return; }
       if (path === '/v1/git/commit') { json(res, await git.commitDetail(text(cwd, '项目路径'), text(url.searchParams.get('oid'), '提交 ID'), Number(url.searchParams.get('parent') ?? 0))); return; }
       await codex.start();
+      if (path === '/v1/models' && req.method === 'GET') { json(res, await executionOptions(codex, url.searchParams.get('cwd') ?? undefined)); return; }
       if (path === '/v1/search' && req.method === 'POST') {
         const b = await body(req); let cancelled = false;
         res.on('close', () => { cancelled = true; });
@@ -80,13 +83,28 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       }
       if (path === '/v1/sessions' && req.method === 'GET') {
         const result = await codex.request('thread/list', { limit: 40, sortKey: 'updated_at',
-          cursor: url.searchParams.get('cursor'), searchTerm: url.searchParams.get('search'), modelProviders: [] });
-        json(res, { ...result, data: result.data.map((thread: any) => ({ ...thread, managed: store.managed(thread.id) })) }); return;
+          cursor: url.searchParams.get('cursor'), searchTerm: url.searchParams.get('search'), modelProviders: [], useStateDbOnly: true });
+        json(res, { ...result, data: result.data.map((thread: any) => ({ id: thread.id, name: thread.name, preview: thread.preview?.slice(0, 200), cwd: thread.cwd, updatedAt: thread.updatedAt, model: thread.model, reasoningEffort: thread.reasoningEffort, managed: store.managed(thread.id) })) }); return;
       }
       if (path === '/v1/sessions' && req.method === 'POST') {
         const b = await body(req);
-        const result = await codex.request('thread/start', { cwd: text(b.cwd, '项目路径'), approvalPolicy: 'on-request', sandbox: 'workspace-write' });
-        store.markManaged(result.thread.id); json(res, { ...result.thread, managed: true }); return;
+        const result = await codex.request('thread/start', { cwd: text(b.cwd, '项目路径'), ...threadSettings() });
+        store.markManaged(result.thread.id);
+        const settings = await effectiveSettings(codex, result); store.saveSettings(result.thread.id, settings);
+        json(res, { ...result.thread, executionSettings: settings, managed: true }); return;
+      }
+      const settingsRoute = path.match(/^\/v1\/sessions\/([^/]+)\/settings$/);
+      if (settingsRoute && req.method === 'POST') {
+        const id = decodeURIComponent(settingsRoute[1]);
+        if (!store.managed(id)) throw new Error('请先恢复此历史会话');
+        if (store.active(id)) throw new Error('请等待本轮执行结束后再修改设置');
+        const current = await codex.request('thread/read', { threadId: id, includeTurns: false });
+        if (current.thread.status?.type === 'active') throw new Error('此会话仍在运行');
+        const settings = await validateSettings(codex, await body(req), current.thread.cwd);
+        const result = await codex.request('thread/resume', { threadId: id, excludeTurns: true, ...threadSettings(settings) });
+        const effective = await effectiveSettings(codex, result);
+        store.saveSettings(id, effective);
+        json(res, { ...result.thread, executionSettings: effective, managed: true }); return;
       }
       const session = path.match(/^\/v1\/sessions\/([^/]+)(\/resume)?$/);
       if (session) {
@@ -97,13 +115,15 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
           if (store.active(id)) throw new Error('此会话已有活动或结果待核实的执行');
           const current = await codex.request('thread/read', { threadId: id, includeTurns: false });
           if (current.thread.status?.type === 'active') throw new Error('此会话仍在运行');
-          const result = await codex.request('thread/resume', { threadId: id, approvalPolicy: 'on-request', sandbox: 'workspace-write' });
-          store.markManaged(id); json(res, { ...result.thread, managed: true }); return;
+          const result = await codex.request('thread/resume', { threadId: id, excludeTurns: true, ...threadSettings(store.settings(id)) });
+          store.markManaged(id);
+          const settings = await effectiveSettings(codex, result); store.saveSettings(id, settings);
+          json(res, { ...result.thread, executionSettings: settings, managed: true }); return;
         }
         if (req.method === 'GET') {
           const result = await codex.request('thread/read', { threadId: id, includeTurns: false });
           const page = await codex.request('thread/turns/list', { threadId: id, limit: 20, sortDirection: 'desc', itemsView: 'full', cursor: url.searchParams.get('cursor') });
-          json(res, { ...result.thread, turns: page.data.reverse(), nextCursor: page.nextCursor, managed: store.managed(id) }); return;
+          json(res, { ...result.thread, turns: page.data.reverse(), nextCursor: page.nextCursor, executionSettings: store.settings(id), managed: store.managed(id) }); return;
         }
       }
       if (path === '/v1/runs' && req.method === 'POST') {
