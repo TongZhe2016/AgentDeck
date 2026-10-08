@@ -2,10 +2,10 @@
 
 HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Authorization: Bearer <电脑服务令牌>`。电脑服务监听 `127.0.0.1:4317`。Android 在 SSH 认证成功后读取服务数据目录下的 `token` 文件（默认 `~/.agentdeck/token`），每次服务连接／重连重新获取并加密缓存。HTTP 与 SSE 请求仍由客户端自动携带令牌，SSE 本身不承担身份认证。错误响应为 `{ "error": "可显示的原因" }`。
 
-- `GET /v1/health`：协议版本、服务版本和平台。
+- `GET /v1/health`：协议版本、服务版本、平台和 `catalog {ready,total,syncedAt,error}` 状态。
 - `GET /v1/snapshot`：最近执行、待处理请求、当前事件游标。
-- `GET /v1/events?after=<seq>`：SSE，每条 `data` 包含 `{seq,type,data,createdAt}`，严格按序补发。客户端使用最后成功处理的序号恢复；无效游标需重取快照。事件类型为 `run.updated`、`agent.event`、`approval.requested`、`approval.resolved`。
-- `GET /v1/sessions?search=&cursor=`：Codex 原生会话标题搜索、分页，每页 40 条轻量摘要（id、name、preview、cwd、updatedAt、model、reasoningEffort、managed），不返回正文。使用本机状态数据库索引，避免每次列表查询扫描历史文件修复元数据。客户端连接时只取第一页，保留已缓存摘要，用户按需继续分页。查询不恢复执行。
+- `GET /v1/events?after=<seq>`：SSE，每条 `data` 包含 `{seq,type,data,createdAt}`，严格按序补发。客户端使用最后成功处理的序号恢复；无效游标需重取快照。事件类型为 `run.updated`、`agent.event`、`approval.requested`、`approval.resolved`、`sessions.changed`。目录事件的 `data` 为 `{upserted:[摘要],removed:[id]}`，每批新增／更新及删除各至多 40 条；客户端合并列表并保留正在阅读的正文与草稿。
+- `GET /v1/sessions?search=&cursor=&after=`：读取服务持久保存的完整未归档目录，每页 40 条轻量摘要（id、name、preview、cwd、updatedAt、model、reasoningEffort、managed），不返回正文。标题／预览搜索在该目录中进行，分页使用更新时间与 ID 组成的不透明游标。返回 `data,nextCursor,catalog,catalogCursor,changes,reset`；`after` 为手机上次保存的 `catalogCursor` 或目录事件序号，`changes` 合并此后所有目录事件为 `{upserted,removed}`，用于补齐离线变更。首次请求省略 after，仅返回当前页；客户端首次获得目录游标时以该页替换没有同步游标的旧摘要缓存；游标超出重建后的服务事件库时 reset=true，客户端重建摘要缓存。服务独立按约 2 秒检查最近原生索引、每分钟完整校准；使用 `useStateDbOnly`，不因手机连接扫描正文。缓存已有时后台失败仍可读取，并在 catalog.error 提示原因。纯空白会话在 Codex 首次落盘前不可发现。
 - `GET /v1/files?path=&cwd=`：下载当前 SSH 账号可读取的普通文件。绝对路径直接读取，相对路径按会话绝对 cwd 解析；流式返回原始字节、Content-Length 和 UTF-8 文件名，不恢复 Codex 会话。文件不存在、无读取权限或路径为目录时返回错误。Android 仅在用户点击文件引用并选择保存位置后请求，支持取消并清理未完成文件。
 - `GET /v1/models?cwd=`：返回此电脑 Codex 的完整分页模型目录 `data`（model、displayName、supportedReasoningEfforts、defaultReasoningEffort 等）和当前项目的 `defaults`。不返回其余电脑配置。
 - `POST /v1/sessions {cwd}`：创建受管理 Codex 会话，初始采用 workspace-write 沙箱和 on-request 审批，返回实际 `executionSettings`。

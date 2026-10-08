@@ -6,6 +6,7 @@ import { Store } from '../storage/store.js';
 import * as git from '../git/git.js';
 import { Attachments } from '../attachments/attachments.js';
 import { Transcription } from '../attachments/transcription.js';
+import { SessionCatalog } from '../history/catalog.js';
 import { search } from '../history/search.js';
 import { executionOptions, validateSettings, threadSettings, effectiveSettings } from '../providers/execution-settings.js';
 
@@ -27,7 +28,7 @@ function json(response: ServerResponse, data: unknown, code = 200) {
   response.end(JSON.stringify(data));
 }
 
-export function api(token: string, codex: Codex, store: Store, attachmentDirectory?: string) {
+export function api(token: string, codex: Codex, store: Store, attachmentDirectory?: string, catalog = new SessionCatalog(codex, store)) {
   const attachments = attachmentDirectory ? new Attachments(store, attachmentDirectory) : undefined;
   const coordinator = new Coordinator(codex, store, attachments);
   const transcription = attachments ? new Transcription(attachments) : undefined;
@@ -46,7 +47,7 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         if (req.method === 'DELETE') { await attachments.remove(attachment[1]); json(res, { ok: true }); return; }
         if (req.method === 'GET') { const result = await attachments.download(attachment[1]); res.writeHead(200, { 'Content-Type': result.mime }); res.end(result.bytes); return; }
       }
-      if (path === '/v1/health') { json(res, { protocol: 1, version: '0.1.0', platform: process.platform, providers: ['codex'] }); return; }
+      if (path === '/v1/health') { json(res, { protocol: 1, version: '0.1.0', platform: process.platform, providers: ['codex'], catalog: catalog.status() }); return; }
       if (path === '/v1/snapshot') { json(res, { runs: store.runs(), approvals: store.approvals(), cursor: store.cursor() }); return; }
       if (path === '/v1/events') {
         let cursor = Number(url.searchParams.get('after') ?? req.headers['last-event-id'] ?? 0);
@@ -77,6 +78,11 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       if (path === '/v1/files' && req.method === 'GET') {
         await downloadFile(text(url.searchParams.get('path'), '文件路径'), cwd, res); return;
       }
+      if (path === '/v1/sessions' && req.method === 'GET') {
+        const after = url.searchParams.get('after');
+        if (after != null && (!Number.isSafeInteger(Number(after)) || Number(after) < 0)) throw new Error('目录游标无效');
+        json(res, await catalog.list(url.searchParams.get('cursor'), url.searchParams.get('search') ?? '', after == null ? undefined : Number(after))); return;
+      }
       await codex.start();
       if (path === '/v1/models' && req.method === 'GET') { json(res, await executionOptions(codex, url.searchParams.get('cwd') ?? undefined)); return; }
       if (path === '/v1/search' && req.method === 'POST') {
@@ -84,11 +90,6 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         res.on('close', () => { cancelled = true; });
         const result = await search(codex, text(b.query, '搜索文字'), b.project ?? '', b.cursor, () => cancelled);
         if (!cancelled) json(res, result); return;
-      }
-      if (path === '/v1/sessions' && req.method === 'GET') {
-        const result = await codex.request('thread/list', { limit: 40, sortKey: 'updated_at',
-          cursor: url.searchParams.get('cursor'), searchTerm: url.searchParams.get('search'), modelProviders: [], useStateDbOnly: true });
-        json(res, { ...result, data: result.data.map((thread: any) => ({ id: thread.id, name: thread.name, preview: thread.preview?.slice(0, 200), cwd: thread.cwd, updatedAt: thread.updatedAt, model: thread.model, reasoningEffort: thread.reasoningEffort, managed: store.managed(thread.id) })) }); return;
       }
       if (path === '/v1/sessions' && req.method === 'POST') {
         const b = await body(req);

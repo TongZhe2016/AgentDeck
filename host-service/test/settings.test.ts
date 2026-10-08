@@ -22,7 +22,7 @@ class SettingsCodex extends Codex {
       ? { data: [model('gpt-6-astra', ['medium', 'high', 'max'])], nextCursor: null }
       : { data: [model('gpt-6.1-sol', ['low', 'medium', 'high'], true)], nextCursor: 'models-next' };
     if (method === 'config/read') return { config: { model: 'gpt-6.1-sol', model_reasoning_effort: 'high', private_setting: 'never expose' } };
-    if (method === 'thread/list') return { data: [{ id: 'thread', name: 'Title', cwd: '/project', preview: 'A'.repeat(1000), turns: [{ items: ['large output'] }] }], nextCursor: 'threads-next' };
+    if (method === 'thread/list') return { data: [{ id: 'thread', name: 'Title', cwd: '/project', preview: 'A'.repeat(1000), turns: [{ items: ['large output'] }] }], nextCursor: null };
     if (method === 'thread/read') return { thread: { id: 'thread', cwd: '/project', status: { type: this.active ? 'active' : 'idle' } } };
     if (method === 'thread/loaded/list') return { data: this.loaded ? ['thread'] : [] };
     if (method === 'thread/start' || method === 'thread/resume') return {
@@ -45,7 +45,7 @@ test('API lists models, saves validated settings, and lists summaries without re
   };
   try {
     const sessions = await request('sessions');
-    assert.equal(sessions.data.nextCursor, 'threads-next');
+    assert.equal(sessions.data.nextCursor, null);
     assert.equal(sessions.data.data[0].turns, undefined);
     assert.equal(sessions.data.data[0].preview.length, 200);
     assert.deepEqual(codex.calls.map(c => c.method), ['thread/list']);

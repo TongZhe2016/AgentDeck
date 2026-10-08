@@ -58,7 +58,7 @@ export class Store extends EventEmitter {
     });
     this.emit('event');
   }
-  private insertEvent(type: string, data: unknown) {
+  insertEvent(type: string, data: unknown) {
     return this.db.prepare('INSERT INTO events(type,data,createdAt) VALUES (?,?,?)')
       .run(type, JSON.stringify(data), new Date().toISOString()).lastInsertRowid;
   }

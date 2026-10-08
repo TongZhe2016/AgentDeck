@@ -24,6 +24,7 @@ export class Codex extends EventEmitter {
       for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(error); }
       this.pending.clear();
       this.process = undefined;
+      this.ready = undefined;
       this.emit('stopped', error.message);
     };
     child.on('error', fail);

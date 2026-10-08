@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.worldcopy.agentdeck.core.network.HostApi
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -49,6 +51,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private var sessionCursor by mutableStateOf<String?>(null)
     private var projectCursor by mutableStateOf<String?>(null)
     private var titleSearch = ""
+    private var catalogCursor: Long? = null
+    private val sessionIndexMutex = Mutex()
     val hasMoreProjects get() = !projectCursor.isNullOrBlank()
     var models by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var optionsLoading by mutableStateOf(false); private set
@@ -229,7 +233,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         work {
             sessions = emptyList()
             file("sessions").takeIf { it.exists() }?.let {
-                val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }
+                val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }; catalogCursor = if (cached.has("catalogCursor")) cached.optLong("catalogCursor") else null
             }
             val cachedGit = file("git").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
             project = cachedGit?.string("root") ?: ""
@@ -249,7 +253,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         work(onFailure = { projectSyncError = it }) {
             projectSyncError = null
             file("sessions").takeIf { it.exists() }?.let {
-                val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }
+                val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }; catalogCursor = if (cached.has("catalogCursor")) cached.optLong("catalogCursor") else null
             }
             val health = api!!.get("health")
             check(health.getInt("protocol") == 1) { "电脑服务协议不兼容" }
@@ -297,6 +301,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                         // cursor with the newest snapshot would discard offline completions.
                         if (failure is com.worldcopy.agentdeck.core.network.EventCursorExpired) {
                           refreshSnapshot()
+                          loadSessions()
                           selected?.let { thread ->
                             val result = api!!.get("sessions/${thread.getString("id")}")
                             selected = result
@@ -318,6 +323,15 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private suspend fun processEvent(event: JSONObject) {
         val data = event.getJSONObject("data")
         when (event.getString("type")) {
+            "sessions.changed" -> sessionIndexMutex.withLock {
+                val sequence = event.getLong("seq")
+                if (sequence > (catalogCursor ?: -1)) {
+                    applyCatalogChanges(data)
+                    catalogCursor = sequence
+                    snapshotTime = java.time.Instant.now().toString()
+                    cacheSessions()
+                }
+            }
             "run.updated" -> {
                 runs = listOf(data) + runs.filter { it.optString("id") != data.optString("id") }
                 val state = data.optString("state")
@@ -356,29 +370,48 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         loadSessions(search, more)
     }
     fun loadMoreProjects() = refreshSessions(more = true)
-    private suspend fun loadSessions(search: String = "", more: Boolean = false) {
+    private suspend fun loadSessions(search: String = "", more: Boolean = false) = sessionIndexMutex.withLock {
         val service = api ?: error("请先连接主机以同步项目")
         val query = mutableMapOf<String, String>()
+        catalogCursor?.let { query["after"] = it.toString() }
         if (search.isNotBlank()) query["search"] = search
         val next = if (search.isBlank()) projectCursor else sessionCursor
-        if (more) query["cursor"] = next ?: return
+        if (more) query["cursor"] = next ?: return@withLock
         val result = service.get("sessions", query)
+        projectSyncError = result.optJSONObject("catalog")?.string("error")?.ifBlank { null }
         val page = result.optJSONArray("data").objects()
         val nextCursor = result.string("nextCursor").ifBlank { null }
         titleSearch = search
+        if (result.optBoolean("reset") || (result.has("catalogCursor") && catalogCursor == null)) {
+            projectSessions = emptyList(); sessions = emptyList()
+        }
         if (search.isBlank()) {
             projectSessions = mergeSessionPage(projectSessions, page, more)
             sessions = projectSessions
             projectCursor = nextCursor
             snapshotTime = java.time.Instant.now().toString()
-            cacheSessions()
         } else {
             sessions = ((if (more) sessions else emptyList()) + page).distinctBy { it.getString("id") }
             sessionCursor = nextCursor
         }
+        result.optJSONObject("changes")?.let { applyCatalogChanges(it) }
+        if (result.has("catalogCursor")) catalogCursor = result.getLong("catalogCursor")
+        cacheSessions()
+    }
+    private fun applyCatalogChanges(change: JSONObject) {
+        val upserted = change.optJSONArray("upserted").objects()
+        val removed = change.optJSONArray("removed")?.let { array -> (0 until array.length()).map { array.getString(it) }.toSet() } ?: emptySet()
+        projectSessions = mergeSessionPage(projectSessions.filterNot { it.string("id") in removed }, upserted, false)
+            .sortedWith(compareByDescending<JSONObject> { it.optLong("updatedAt") }.thenByDescending { it.string("id") })
+        sessions = if (titleSearch.isBlank()) projectSessions else {
+            val changedIds = upserted.map { it.string("id") }.toSet()
+            val matching = upserted.filter { (it.string("name") + " " + it.string("preview")).contains(titleSearch, ignoreCase = true) }
+            mergeSessionPage(sessions.filterNot { it.string("id") in removed || it.string("id") in changedIds }, matching, false)
+                .sortedWith(compareByDescending<JSONObject> { it.optLong("updatedAt") }.thenByDescending { it.string("id") })
+        }
     }
     private suspend fun cacheSessions() = withContext(Dispatchers.IO) {
-        writeCache("sessions", JSONObject().put("data", JSONArray(projectSessions)).put("syncedAt", snapshotTime).put("nextCursor", projectCursor).toString())
+        writeCache("sessions", JSONObject().put("data", JSONArray(projectSessions)).put("syncedAt", snapshotTime).put("nextCursor", projectCursor).put("catalogCursor", catalogCursor).toString())
     }
     fun loadExecutionOptions() {
         optionsJob?.cancel()

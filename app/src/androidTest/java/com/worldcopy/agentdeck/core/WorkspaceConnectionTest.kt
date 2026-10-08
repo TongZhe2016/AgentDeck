@@ -27,6 +27,59 @@ import kotlin.concurrent.thread
 class WorkspaceConnectionTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
+    @Test fun catalogEventsUpdateProjectsAndReplayOfflineChangesWithoutReloadingHistory() {
+        val app = compose.activity.application as AgentDeckApplication
+        val hostId = "catalog-${java.util.UUID.randomUUID()}"
+        var workspace = app.workspace(hostId)
+        fun item(id: String, name: String, updated: Long) = JSONObject().put("id", id).put("name", name).put("cwd", "/fixture").put("updatedAt", updated)
+        File(app.noBackupFilesDir, "workspace/$hostId-sessions.json").writeText(
+            JSONObject().put("data", JSONArray(listOf(item("archived-before-upgrade", "Old cache", 80)))).toString())
+        var offline = false
+        WorkspaceFixtureService(catalogResponse = { uri ->
+            if (offline) {
+                assertEquals("2", uri.getQueryParameter("after"))
+                JSONObject().put("data", JSONArray(listOf(item("thread", "Original", 100))))
+                    .put("catalogCursor", 3).put("changes", JSONObject()
+                        .put("upserted", JSONArray(listOf(item("offline", "Created while disconnected", 103))))
+                        .put("removed", JSONArray(listOf("external"))))
+            } else JSONObject().put("data", JSONArray(listOf(item("thread", "Original", 100), item("older", "Older", 90))))
+                .put("catalogCursor", 0)
+        }).use { service ->
+            try {
+                compose.runOnUiThread { workspace.connect(hostId, service.port, "fixture") { HostApi(service.port, "fixture") } }
+                compose.waitUntil(10_000) { workspace.online && !workspace.busy && workspace.projectSessions.size == 2 }
+                compose.runOnUiThread { workspace.openSession(item("thread", "Original", 100)) }
+                compose.waitUntil(10_000) { !workspace.busy && workspace.messages.isNotEmpty() }
+                compose.runOnUiThread { workspace.updateDraft("Keep this draft") }
+                fun event(seq: Long, upserted: JSONObject, removed: List<String> = emptyList()) {
+                    service.events.offer(JSONObject().put("seq", seq).put("type", "sessions.changed").put("data", JSONObject()
+                        .put("upserted", JSONArray(listOf(upserted))).put("removed", JSONArray(removed))).toString())
+                }
+                event(1, item("external", "New desktop conversation", 101))
+                compose.waitUntil(10_000) { workspace.projectSessions.any { it.optString("id") == "external" } }
+                event(2, item("external", "Renamed desktop conversation", 102), listOf("older"))
+                compose.waitUntil(10_000) { workspace.projectSessions.first().optString("name") == "Renamed desktop conversation" && workspace.projectSessions.size == 2 }
+                assertEquals(1, service.lists.get())
+                assertEquals(1, service.histories.get())
+                assertEquals("thread", workspace.selected!!.getString("id"))
+                assertEquals("Keep this draft", workspace.draft)
+                assertEquals("初始回复", workspace.messages.single().text)
+                val cache = File(app.noBackupFilesDir, "workspace/$hostId-sessions.json")
+                compose.waitUntil(10_000) { runCatching { JSONObject(cache.readText()).optLong("catalogCursor") == 2L }.getOrDefault(false) }
+                compose.runOnUiThread { workspace.disconnect(); app.workspaces.remove(hostId); workspace = com.worldcopy.agentdeck.feature.workspace.WorkspaceViewModel(app) }
+                offline = true
+                compose.runOnUiThread { workspace.connect(hostId, service.port, "fixture") { HostApi(service.port, "fixture") } }
+                compose.waitUntil(10_000) { !workspace.busy && workspace.projectSessions.any { it.optString("id") == "offline" } }
+                assertFalse(workspace.projectSessions.any { it.optString("id") == "external" || it.optString("id") == "older" })
+                assertEquals(2, service.lists.get())
+                assertEquals(1, service.histories.get())
+            } finally {
+                compose.runOnUiThread { workspace.disconnect(); app.workspaces.remove(hostId) }
+                File(app.noBackupFilesDir, "workspace").listFiles()?.filter { it.name.startsWith(hostId) }?.forEach { it.delete() }
+            }
+        }
+    }
+
     @Test fun foregroundReusesStreamAndConversationAndPagesOnlyOnDemand() {
         val app = compose.activity.application as AgentDeckApplication
         if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(app.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
@@ -87,6 +140,7 @@ internal class WorkspaceFixtureService(
     val historyItems: List<JSONObject> = listOf(JSONObject().put("id", "initial").put("type", "agentMessage").put("text", "初始回复")),
     private val beforeList: () -> Unit = {},
     initiallyManaged: Boolean = true,
+    private val catalogResponse: ((android.net.Uri) -> JSONObject)? = null,
 ) : Closeable {
     private val server = ServerSocket(0)
     val port = server.localPort
@@ -175,7 +229,7 @@ internal class WorkspaceFixtureService(
                 lists.incrementAndGet()
                 beforeList()
                 val more = path.contains("cursor=")
-                JSONObject().put("data", JSONArray(listOf(JSONObject().put("id", if (more) "older" else "thread").put("cwd", "/fixture"))))
+                catalogResponse?.invoke(android.net.Uri.parse(path)) ?: JSONObject().put("data", JSONArray(listOf(JSONObject().put("id", if (more) "older" else "thread").put("cwd", "/fixture"))))
                     .put("nextCursor", if (more) JSONObject.NULL else "next")
             }
             else -> error("Unexpected request $path")
