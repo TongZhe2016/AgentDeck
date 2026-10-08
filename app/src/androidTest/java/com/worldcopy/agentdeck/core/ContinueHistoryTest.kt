@@ -43,7 +43,7 @@ class ContinueHistoryTest {
         compose.onNodeWithText("设置").assertDoesNotExist()
         val bar = compose.onNodeWithTag("execution-settings-bar")
         bar.assertIsEnabled().assertIsDisplayed()
-        val labels = listOf("gpt-6.1-sol", "思考：高", "请求批准").map {
+        val labels = listOf("gpt-6.1-sol", "high", "请求批准").map {
             compose.onNodeWithText(it, useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         }
         assertEquals(labels[0].center.y, labels[1].center.y, 1f)
@@ -55,10 +55,10 @@ class ContinueHistoryTest {
             output.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
         }
-        compose.onNodeWithText("思考：高").performClick()
+        compose.onNodeWithText("high").performClick()
         compose.waitUntil(10_000) { !vm.optionsLoading && vm.models.isNotEmpty() }
-        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("低"))
-        compose.onNodeWithText("低").performClick()
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-slider"))
+        compose.onNodeWithTag("effort-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
         compose.onNodeWithText("保存设置").performClick()
         compose.waitUntil(10_000) { !vm.busy && service.writes.size == 2 }

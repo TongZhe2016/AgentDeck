@@ -21,9 +21,41 @@ import kotlin.math.roundToInt
 
 internal val permissionLabels = linkedMapOf("read-only" to "只读", "untrusted" to "未信任", "on-request" to "请求批准", "never" to "不请求批准", "full-access" to "完全访问")
 private val permissionLevels = permissionLabels.keys.toList()
+private val effortOrder = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 internal fun effortLabel(value: String) = when (value) {
-    "none" -> "无"; "minimal" -> "最低"; "low" -> "低"; "medium" -> "中"; "high" -> "高"
-    "xhigh" -> "极高"; "max" -> "最大"; "ultra" -> "超高"; "" -> "模型默认"; else -> value
+    "xhigh" -> "extreme high"; "" -> "模型默认"; else -> value
+}
+
+@Composable
+private fun EffortSlider(efforts: List<String>, effort: String, enabled: Boolean, select: (String) -> Unit) {
+    val ultra = effort == "ultra"
+    val accent = if (ultra) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("思考强度", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Surface(color = if (ultra) accent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.small) {
+            Text(effortLabel(effort), Modifier.padding(horizontal = 12.dp, vertical = 6.dp).testTag("effort-value"),
+                style = MaterialTheme.typography.labelLarge, color = accent)
+        }
+    }
+    if (efforts.isNotEmpty()) {
+        Slider(value = efforts.indexOf(effort).coerceAtLeast(0).toFloat(),
+            onValueChange = { select(efforts[it.roundToInt()]) },
+            valueRange = 0f..efforts.lastIndex.coerceAtLeast(1).toFloat(),
+            steps = (efforts.size - 2).coerceAtLeast(0),
+            enabled = enabled && efforts.size > 1,
+            colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent,
+                activeTickColor = if (ultra) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("effort-slider").semantics {
+                contentDescription = "思考强度"
+                stateDescription = effortLabel(effort)
+            })
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(effortLabel(efforts.first()), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (efforts.size > 1) Text(effortLabel(efforts.last()), style = MaterialTheme.typography.labelMedium, color = accent)
+        }
+    }
 }
 
 @Composable
@@ -43,7 +75,7 @@ fun ExecutionSettingsBar(vm: WorkspaceViewModel, enabled: Boolean) {
         val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.6f)
         Text(model, Modifier.weight(0.45f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge, color = color)
-        Text("思考：${effortLabel(effort)}", Modifier.weight(0.25f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(effortLabel(effort), Modifier.weight(0.25f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge, color = color)
         Text(permissionLabel, Modifier.weight(0.30f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge, color = color)
@@ -63,6 +95,7 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
     var permission by remember { mutableStateOf(currentPermission) }
     val selected = models.firstOrNull { it.string("model") == model }
     val efforts = selected?.optJSONArray("supportedReasoningEfforts").objects().map { it.string("reasoningEffort") }
+        .distinct().sortedBy { effortOrder.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
     LaunchedEffect(models, model) {
         if (selected != null && effort !in efforts) effort = selected.string("defaultReasoningEffort")
     }
@@ -88,10 +121,7 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                 }
             }
             item {
-                Text("思考强度", style = MaterialTheme.typography.titleMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    efforts.forEach { value -> FilterChip(selected = effort == value, onClick = { effort = value }, enabled = !saving, label = { Text(effortLabel(value)) }) }
-                }
+                EffortSlider(efforts, effort, enabled = !saving && !loading && error == null) { effort = it }
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
