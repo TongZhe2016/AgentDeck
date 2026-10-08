@@ -33,7 +33,7 @@ class WorkspaceConnectionTest {
         val host = Host(name = "Connection fixture", address = "127.0.0.1", port = 1, username = "fixture", authMethod = AuthMethod.PASSWORD)
         val workspace = app.workspace(host.id)
         val originalKeepConnected = app.keepConnected
-        FixtureService().use { service ->
+        WorkspaceFixtureService().use { service ->
             try {
                 compose.waitUntil(10_000) { !app.hosts.busy }
                 compose.runOnUiThread { app.hosts.save(host, null) {} }
@@ -83,7 +83,9 @@ class WorkspaceConnectionTest {
     }
 }
 
-private class FixtureService : Closeable {
+internal class WorkspaceFixtureService(
+    val historyItems: List<JSONObject> = listOf(JSONObject().put("id", "initial").put("type", "agentMessage").put("text", "初始回复")),
+) : Closeable {
     private val server = ServerSocket(0)
     val port = server.localPort
     val lists = AtomicInteger()
@@ -129,7 +131,7 @@ private class FixtureService : Closeable {
             path.startsWith("/v1/sessions/thread") -> {
                 histories.incrementAndGet()
                 JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", true).put("turns", JSONArray(listOf(
-                    JSONObject().put("id", "turn").put("items", JSONArray(listOf(JSONObject().put("id", "initial").put("type", "agentMessage").put("text", "初始回复")))))))
+                    JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             }
             path.startsWith("/v1/sessions") -> {
                 lists.incrementAndGet()

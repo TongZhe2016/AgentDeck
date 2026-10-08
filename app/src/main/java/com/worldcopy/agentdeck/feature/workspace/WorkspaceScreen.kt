@@ -59,7 +59,7 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title, maxLines = 1) })
             }
         }
-        when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else Chat(vm); 1 -> Changes(vm); 2 -> Graph(vm) { tab = 0 } }
+        when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else key(vm, vm.selected?.string("id")) { Chat(vm) }; 1 -> Changes(vm); 2 -> Graph(vm) { tab = 0 } }
     }
     vm.error?.let { message -> AlertDialog(onDismissRequest = vm::dismissError, title = { Text("操作未完成") }, text = { SelectionContainer { Text(message) } },
         confirmButton = { TextButton(onClick = vm::dismissError) { Text("知道了") } }) }
@@ -119,25 +119,41 @@ private fun Chat(vm: WorkspaceViewModel) {
     val thread = vm.selected ?: return
     var resume by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    var positioned by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(vm.messages.lastOrNull()) {
-        val layout = listState.layoutInfo
-        if (layout.totalItemsCount > 0 && (layout.visibleItemsInfo.lastOrNull()?.index ?: 0) >= layout.totalItemsCount - 3) {
-            listState.scrollToItem(layout.totalItemsCount - 1)
+    val latestMessage = vm.messages.lastOrNull()
+    // Capture the position before new content is measured and stable item keys shift its index.
+    val followLatest = remember(latestMessage) {
+        !positioned || (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0)
+    }
+    LaunchedEffect(latestMessage) {
+        if (latestMessage != null && followLatest) {
+            listState.scrollToItem(0)
+            positioned = true
         }
     }
     val timeline = remember(vm.messages) { executionTimeline(vm.messages) }
     val runs = vm.runs.filter { it.optString("threadId") == thread.getString("id") }
     val active = runs.firstOrNull { it.optString("state") in listOf("queued", "running", "waiting_approval", "waiting_input", "unknown") }
     Column(Modifier.fillMaxSize().imePadding()) {
-        LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
-                Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
+        LazyColumn(Modifier.weight(1f).testTag("chat-messages"), state = listState, reverseLayout = true,
+            contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (active == null && runs.isNotEmpty()) item(key = "last-run") {
+                Text("上一轮：${stateName(runs.first().optString("state"))}")
+                runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
-            if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
-            items(timeline, key = { it.key }) { entry ->
+            if (active != null) item(key = "active-run") {
+                if (vm.messages.none { it.execution && it.turnId == active.string("turnId") }) {
+                    ExecutionCard(active.string("turnId").ifBlank { active.getString("id") }, emptyList(), active.string("state"))
+                }
+                active.string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (active.optString("state") == "unknown") TextButton(onClick = { vm.reconcile(active) }, enabled = !vm.busy) { Text("核实执行结果") }
+                else TextButton(onClick = { vm.cancel(active) }, enabled = !vm.busy && active.string("turnId").isNotBlank()) { Text("取消本轮执行") }
+            }
+            items(vm.approvals.filter { a -> runs.any { it.optString("id") == a.optString("runId") } }.asReversed(), key = { it.getString("id") }) { approval ->
+                ApprovalCard(vm, approval)
+            }
+            items(timeline.asReversed(), key = { it.key }) { entry ->
                 val item = entry.message
                 if (item == null) {
                     val run = runs.firstOrNull { it.string("turnId") == entry.turnId }
@@ -150,23 +166,14 @@ private fun Chat(vm: WorkspaceViewModel) {
                     }
                 }
             }
-            items(vm.approvals.filter { a -> runs.any { it.optString("id") == a.optString("runId") } }, key = { it.getString("id") }) { approval ->
-                ApprovalCard(vm, approval)
-            }
-            if (active != null) item {
-                if (vm.messages.none { it.execution && it.turnId == active.string("turnId") }) {
-                    ExecutionCard(active.string("turnId").ifBlank { active.getString("id") }, emptyList(), active.string("state"))
-                }
-                active.string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (active.optString("state") == "unknown") TextButton(onClick = { vm.reconcile(active) }, enabled = !vm.busy) { Text("核实执行结果") }
-                else TextButton(onClick = { vm.cancel(active) }, enabled = !vm.busy && active.string("turnId").isNotBlank()) { Text("取消本轮执行") }
-            }
-            if (active == null && runs.isNotEmpty()) item {
-                Text("上一轮：${stateName(runs.first().optString("state"))}")
-                runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
+            item(key = "thread-header") {
+                Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
+                Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
             }
         }
-        if (vm.messages.isNotEmpty() && listState.canScrollForward) TextButton(onClick = { scope.launch { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } }) {
+        if (vm.messages.isNotEmpty() && listState.canScrollBackward) TextButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
             Text("查看最新消息")
         }
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
