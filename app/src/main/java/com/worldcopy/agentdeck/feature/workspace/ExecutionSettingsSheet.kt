@@ -1,5 +1,6 @@
 package com.worldcopy.agentdeck.feature.workspace
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,14 +34,19 @@ fun ExecutionSettingsBar(vm: WorkspaceViewModel, enabled: Boolean) {
     val model = current?.string("model")?.ifBlank { null } ?: thread.string("model").ifBlank { "电脑默认模型" }
     val effort = current?.string("effort") ?: thread.string("reasoningEffort")
     val permission = current?.string("permissionMode") ?: "on-request"
-    val permissionLabel = if (thread.optBoolean("managed")) permissionLabels[permission] ?: permission else "只读历史"
-    TextButton(onClick = { open = true; vm.loadExecutionOptions() }, enabled = enabled,
-        modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(model, Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-            Text("思考：${effortLabel(effort)} · ${permissionLabel}", Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelMedium)
-        }
-        Text("设置", style = MaterialTheme.typography.labelLarge)
+    val permissionLabel = permissionLabels[permission] ?: permission
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("execution-settings-bar")
+        .clickable(enabled = enabled, role = Role.Button, onClickLabel = "选择模型、思考强度与访问程度") {
+            open = true; vm.loadExecutionOptions()
+        }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.6f)
+        Text(model, Modifier.weight(0.45f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelLarge, color = color)
+        Text("思考：${effortLabel(effort)}", Modifier.weight(0.25f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelLarge, color = color)
+        Text(permissionLabel, Modifier.weight(0.30f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelLarge, color = color)
     }
     if (open) ExecutionSettingsSheet(vm.models, vm.optionsLoading, vm.optionsError,
         model, effort, permission, vm.busy, dismiss = { open = false }, retry = vm::loadExecutionOptions,

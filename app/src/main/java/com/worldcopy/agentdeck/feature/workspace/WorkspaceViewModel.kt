@@ -368,9 +368,10 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun saveExecutionSettings(model: String, effort: String, permission: String, done: () -> Unit) = work {
         check(!hasUnconfirmedSubmission) { "请先确认上次消息送达" }
         val thread = selected ?: return@work
+        resumeHistoryIfNeeded(thread)
         val result = api!!.post("sessions/${thread.getString("id")}/settings",
             JSONObject().put("model", model).put("effort", effort).put("permissionMode", permission))
-        selected = JSONObject(thread.toString()).put("executionSettings", result.getJSONObject("executionSettings"))
+        selected = JSONObject(selected!!.toString()).put("executionSettings", result.getJSONObject("executionSettings"))
         cacheMessages()
         done()
     }
@@ -417,15 +418,21 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         attachments = cached?.optJSONArray("attachments").objects().map { DraftAttachment(it.getString("id"), it.getString("path"), it.getString("mime"), it.optBoolean("uploaded")) }
         pendingAttachments = cached?.optJSONArray("pendingAttachments")?.let { a -> (0 until a.length()).map { a.getString(it) } }
     }
-    fun resume() = work {
-        val id = selected!!.getString("id")
-        selected = api!!.post("sessions/$id/resume", JSONObject().put("confirmStopped", true))
+    private suspend fun resumeHistoryIfNeeded(thread: JSONObject) {
+        if (thread.optBoolean("managed")) return
+        val id = thread.getString("id")
+        val result = api!!.post("sessions/$id/resume", JSONObject().put("confirmStopped", true))
+        selected = result
+        sessions = sessions.map { if (it.string("id") == id) result else it }
+        projectSessions = projectSessions.map { if (it.string("id") == id) result else it }
+        cacheSessions()
+        cacheMessages()
     }
     fun send() = work {
         val session = selected ?: return@work
-        check(session.optBoolean("managed")) { "请先恢复此会话" }
         require(draft.isNotBlank() || pendingText != null || attachments.isNotEmpty()) { "请输入消息" }
         require(attachments.none { it.mime.startsWith("audio/") }) { "请先转写录音，确认文字后再发送" }
+        resumeHistoryIfNeeded(session)
         for (attachment in attachments.filter { !it.uploaded }) {
             api!!.upload(attachment.id, session.getString("id"), File(attachment.path), attachment.mime)
             attachments = attachments.map { if (it.id == attachment.id) it.copy(uploaded = true) else it }

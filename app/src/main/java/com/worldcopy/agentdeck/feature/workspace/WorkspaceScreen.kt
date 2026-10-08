@@ -20,7 +20,6 @@ import com.worldcopy.agentdeck.ui.components.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import com.worldcopy.agentdeck.feature.hosts.ConfirmDialog
 import com.worldcopy.agentdeck.feature.hosts.Field
 import org.json.JSONObject
 import kotlinx.coroutines.launch
@@ -110,7 +109,7 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     Text(session.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    StatusLabel(if (session.optBoolean("managed")) "受管理会话" else "已有历史 · 只读", positive = session.optBoolean("managed"))
+                    StatusLabel(if (session.optBoolean("managed")) "受管理会话" else "已有会话 · 可继续", positive = session.optBoolean("managed"))
                 }
             }
         }
@@ -121,7 +120,6 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
 @Composable
 private fun Chat(vm: WorkspaceViewModel) {
     val thread = vm.selected ?: return
-    var resume by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     var positioned by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -181,7 +179,6 @@ private fun Chat(vm: WorkspaceViewModel) {
                     Column {
                         Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
                         Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
                     }
                 }
             }
@@ -190,7 +187,7 @@ private fun Chat(vm: WorkspaceViewModel) {
             }
             Surface(modifier = Modifier.heightIn(max = composerMaxHeight), color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && active == null && !vm.hasUnconfirmedSubmission)
+                    ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && active == null && !vm.hasUnconfirmedSubmission)
                     if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         vm.attachments.forEachIndexed { index, attachment ->
                             if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
@@ -203,9 +200,9 @@ private fun Chat(vm: WorkspaceViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
                         OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
                             shape = MaterialTheme.shapes.medium)
-                        Button(onClick = vm::send, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission),
+                        Button(onClick = vm::send, enabled = vm.online && !vm.busy && (active == null || vm.hasUnconfirmedSubmission),
                             contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
-                            Text(if (vm.hasUnconfirmedSubmission) "确认送达" else "发送")
+                            Text(if (vm.hasUnconfirmedSubmission) "确认送达" else if (!thread.optBoolean("managed")) "继续对话" else "发送")
                         }
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -217,7 +214,6 @@ private fun Chat(vm: WorkspaceViewModel) {
 
         }
     }
-    if (resume) ConfirmDialog("恢复原有会话", "请确认电脑上的原会话已停止。恢复后将由 AgentDeck 服务继续执行。", { resume = false }) { resume = false; vm.resume() }
 }
 
 @Composable

@@ -86,6 +86,7 @@ class WorkspaceConnectionTest {
 internal class WorkspaceFixtureService(
     val historyItems: List<JSONObject> = listOf(JSONObject().put("id", "initial").put("type", "agentMessage").put("text", "初始回复")),
     private val beforeList: () -> Unit = {},
+    initiallyManaged: Boolean = true,
 ) : Closeable {
     private val server = ServerSocket(0)
     val port = server.localPort
@@ -93,6 +94,10 @@ internal class WorkspaceFixtureService(
     val histories = AtomicInteger()
     val streams = AtomicInteger()
     val events = LinkedBlockingQueue<String>()
+    var managed = initiallyManaged
+    var refuseResume = false
+    val writes = CopyOnWriteArrayList<Pair<String, JSONObject>>()
+    var settings = JSONObject().put("model", "gpt-6.1-sol").put("effort", "high").put("permissionMode", "on-request")
     private val sockets = CopyOnWriteArrayList<Socket>()
     init {
         thread(isDaemon = true) {
@@ -125,13 +130,36 @@ internal class WorkspaceFixtureService(
             }
             return
         }
+        if (length > 0) writes += path to JSONObject(String(body))
+        if (path == "/v1/sessions/thread/resume" && refuseResume) {
+            val error = JSONObject().put("error", "此会话仍在运行").toString().toByteArray()
+            output.write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: ${error.size}\r\nConnection: close\r\n\r\n".toByteArray())
+            output.write(error); output.flush(); return
+        }
         val response = when {
             path == "/v1/health" -> JSONObject().put("protocol", 1)
             path == "/v1/snapshot" -> JSONObject().put("runs", JSONArray()).put("approvals", JSONArray()).put("cursor", 0)
-            path == "/v1/sessions/thread/settings" -> JSONObject().put("executionSettings", JSONObject(String(body)))
+            path.startsWith("/v1/models") -> JSONObject().put("data", JSONArray(listOf(
+                JSONObject().put("id", "sol").put("model", "gpt-6.1-sol").put("displayName", "GPT-6.1 Sol")
+                    .put("defaultReasoningEffort", "high").put("supportedReasoningEfforts", JSONArray(listOf("low", "high").map {
+                        JSONObject().put("reasoningEffort", it)
+                    })))))
+            path == "/v1/sessions/thread/settings" -> {
+                check(managed)
+                settings = JSONObject(String(body))
+                JSONObject().put("executionSettings", settings)
+            }
+            path == "/v1/sessions/thread/resume" -> {
+                managed = true
+                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", true).put("executionSettings", settings)
+            }
+            path == "/v1/runs" -> {
+                check(managed)
+                JSONObject().put("id", "run").put("threadId", "thread").put("turnId", "next-turn").put("state", "running")
+            }
             path.startsWith("/v1/sessions/thread") -> {
                 histories.incrementAndGet()
-                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", true).put("turns", JSONArray(listOf(
+                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", managed).put("executionSettings", settings).put("turns", JSONArray(listOf(
                     JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             }
             path.startsWith("/v1/sessions") -> {

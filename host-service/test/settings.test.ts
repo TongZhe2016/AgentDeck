@@ -12,6 +12,7 @@ import { Coordinator } from '../src/execution/coordinator.js';
 class SettingsCodex extends Codex {
   calls: { method: string; params: any }[] = [];
   loaded = false;
+  active = false;
   override async start() {}
   override async request(method: string, params: any): Promise<any> {
     this.calls.push({ method, params });
@@ -22,7 +23,7 @@ class SettingsCodex extends Codex {
       : { data: [model('gpt-6.1-sol', ['low', 'medium', 'high'], true)], nextCursor: 'models-next' };
     if (method === 'config/read') return { config: { model: 'gpt-6.1-sol', model_reasoning_effort: 'high', private_setting: 'never expose' } };
     if (method === 'thread/list') return { data: [{ id: 'thread', name: 'Title', cwd: '/project', preview: 'A'.repeat(1000), turns: [{ items: ['large output'] }] }], nextCursor: 'threads-next' };
-    if (method === 'thread/read') return { thread: { id: 'thread', cwd: '/project', status: { type: 'idle' } } };
+    if (method === 'thread/read') return { thread: { id: 'thread', cwd: '/project', status: { type: this.active ? 'active' : 'idle' } } };
     if (method === 'thread/loaded/list') return { data: this.loaded ? ['thread'] : [] };
     if (method === 'thread/start' || method === 'thread/resume') return {
       thread: { id: 'thread', cwd: '/project' }, model: params.model ?? 'gpt-6.1-sol', reasoningEffort: params.config?.model_reasoning_effort ?? null,
@@ -98,4 +99,37 @@ test('settings survive restart and control both reloaded and already loaded turn
     assert.equal(turn.approvalPolicy, 'never');
     assert.equal(turn.sandboxPolicy.type, 'workspaceWrite', 'disabling approvals must preserve the workspace sandbox');
   } finally { store.close(); }
+});
+
+test('external history resumes in place, accepts settings, and refuses active history', async () => {
+  const store = new Store(':memory:'); const codex = new SettingsCodex(); const server = api('test', codex, store);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const base = `http://127.0.0.1:${(server.address() as any).port}/v1/`;
+  const post = async (path: string, body: unknown) => {
+    const response = await fetch(base + path, { method: 'POST', headers: { Authorization: 'Bearer test' }, body: JSON.stringify(body) });
+    return { status: response.status, data: await response.json() as any };
+  };
+  try {
+    codex.active = true;
+    assert.equal((await post('sessions/thread/resume', { confirmStopped: true })).status, 400);
+    assert.equal(store.managed('thread'), false);
+    assert.equal(codex.calls.some(c => c.method === 'thread/resume'), false);
+    codex.active = false;
+    const resumed = await post('sessions/thread/resume', { confirmStopped: true });
+    assert.equal(resumed.status, 200);
+    assert.equal(resumed.data.id, 'thread');
+    assert.equal(resumed.data.managed, true);
+    const settings = { model: 'gpt-6-astra', effort: 'max', permissionMode: 'read-only' };
+    assert.equal((await post('sessions/thread/settings', settings)).status, 200);
+    codex.loaded = true;
+    const run = await post('runs', { clientRequestId: 'continue', threadId: 'thread', text: 'Continue original conversation' });
+    assert.equal(run.status, 200);
+    assert.equal(run.data.state, 'running');
+    const turn = codex.calls.find(c => c.method === 'turn/start')!.params;
+    assert.equal(turn.threadId, 'thread');
+    assert.equal(turn.model, settings.model);
+    assert.equal(turn.effort, settings.effort);
+    assert.equal(turn.sandboxPolicy.type, 'readOnly');
+    assert.equal(codex.calls.some(c => c.method === 'thread/start'), false);
+  } finally { server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); store.close(); }
 });
