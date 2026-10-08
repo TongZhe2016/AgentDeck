@@ -20,36 +20,36 @@ import com.worldcopy.agentdeck.ui.components.DeckChevron
 @Composable
 fun ExecutionCard(id: String, steps: List<ChatItem>, state: String) {
     var expanded by rememberSaveable(id) { mutableStateOf(false) }
-    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth().testTag("execution:$id")) {
-        Column {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                .clickable(role = Role.Button, onClickLabel = if (expanded) "收起执行过程" else "展开执行过程") { expanded = !expanded }
-                .semantics { stateDescription = if (expanded) "已展开" else "已折叠" }.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(stateName(state), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    Text(steps.lastOrNull()?.let(::stepSummary) ?: "正在准备", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelMedium)
-                DeckChevron(expanded)
+    val summary = steps.lastOrNull()?.let(::stepSummary)
+    val label = when {
+        summary == null -> stateName(state)
+        state == "completed" -> summary
+        else -> "${stateName(state)} · $summary"
+    }
+    Column(Modifier.fillMaxWidth().testTag("execution:$id")) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("execution-toggle:$id")
+            .clickable(enabled = steps.isNotEmpty(), role = Role.Button,
+                onClickLabel = if (expanded) "收起执行过程" else "展开执行过程") { expanded = !expanded }
+            .semantics { stateDescription = if (expanded) "已展开" else "已折叠" }
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (steps.isNotEmpty()) DeckChevron(expanded)
+        }
+        if (expanded) steps.forEach { step ->
+            var detail by rememberSaveable(id, step.id) { mutableStateOf(false) }
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("step:${step.id}")
+                .clickable(role = Role.Button, onClickLabel = if (detail) "收起详情" else "查看详情") { detail = !detail }
+                .semantics { stateDescription = if (detail) "已展开" else "已折叠" }.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stepSummary(step), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (step.status == "failed" || step.status == "declined") Text("失败", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                DeckChevron(detail)
             }
-            if (expanded) steps.forEach { step ->
-                var detail by rememberSaveable(id, step.id) { mutableStateOf(false) }
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("step:${step.id}")
-                    .clickable(role = Role.Button, onClickLabel = if (detail) "收起详情" else "查看详情") { detail = !detail }
-                    .semantics { stateDescription = if (detail) "已展开" else "已折叠" }.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stepSummary(step), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium)
-                    if (step.status == "failed" || step.status == "declined") Text("失败", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                    DeckChevron(detail)
-                }
-                if (detail) SelectionContainer(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp).testTag("step-detail:${step.id}")) {
-                    Text(step.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                }
+            if (detail) SelectionContainer(Modifier.padding(start = 24.dp, end = 12.dp, bottom = 12.dp).testTag("step-detail:${step.id}")) {
+                Text(step.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
         }
     }
