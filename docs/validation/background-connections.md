@@ -19,6 +19,10 @@
 - 新增双主机测试通过：两台主机在后台分别收到目录事件，返回前台仍在线，事件连接数与目录首次加载次数均未增加。
 - 单独安装 APK、撤销 `POST_NOTIFICATIONS` 并确认 `granted=false` 后，通过 `am instrument` 再运行双主机测试，仍通过；连接不依赖通知授权。
 
+补充验证：撤销 `POST_NOTIFICATIONS` 并确认 `granted=false` 后，连接生命周期用例也通过，覆盖旧关闭设置、Activity 重建、后台断流恢复和草稿保留。
+
+lint 保留 `BatteryLife` 提示：直接申请电池优化豁免需要符合核心功能用途。这里实时回复和审批来自用户电脑的 SSH 隧道，电脑服务仅监听回环地址，没有 FCM 投递链路；授权由用户在系统弹窗中决定。构建与 lint 无阻断错误。
+
 Gradle 启动使用 Android Studio 自带 JBR，实际构建 JVM 由仓库 daemon JVM 配置选择。设备测试命令：
 
 ```sh
