@@ -27,8 +27,13 @@ class ConnectionService : Service() {
         active = true
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "stop") { (application as AgentDeckApplication).disconnectAll(); stopSelf() }
-        return START_NOT_STICKY
+        val app = application as AgentDeckApplication
+        if (intent?.action == "stop") {
+            app.updateKeepConnected(false); app.disconnectAll(); stopSelf(); return START_NOT_STICKY
+        }
+        if (!app.keepConnected) { stopSelf(); return START_NOT_STICKY }
+        if (intent == null) app.hosts.syncProjects(refreshConnected = false)
+        return START_STICKY
     }
     override fun onTimeout(startId: Int, fgsType: Int) {
         (application as AgentDeckApplication).disconnectAll()

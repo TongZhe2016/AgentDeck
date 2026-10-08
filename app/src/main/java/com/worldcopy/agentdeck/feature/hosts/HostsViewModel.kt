@@ -138,14 +138,15 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun syncProjects(host: Host? = null) = work {
-        syncHosts(host?.let { listOf(it) } ?: hosts)
+    fun syncProjects(host: Host? = null, refreshConnected: Boolean = true) = work {
+        syncHosts(host?.let { listOf(it) } ?: hosts, refreshConnected)
     }
 
-    private suspend fun syncHosts(targets: List<Host>) {
+    private suspend fun syncHosts(targets: List<Host>, refreshConnected: Boolean = true) {
         val app = getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication
         for (target in targets) {
             val workspace = app.workspace(target.id)
+            if (!refreshConnected && workspace.maintainsConnection) continue
             connectingHosts = connectingHosts + target.id
             try {
                 if (workspace.connection == "服务未连接") {

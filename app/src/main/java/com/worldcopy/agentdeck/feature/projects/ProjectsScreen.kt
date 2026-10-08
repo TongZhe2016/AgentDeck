@@ -26,7 +26,7 @@ import com.worldcopy.agentdeck.feature.workspace.string
 import com.worldcopy.agentdeck.ui.components.*
 import org.json.JSONObject
 
-data class ProjectHostStatus(val loading: Boolean = false, val problem: String? = null, val label: String = "未同步")
+data class ProjectHostStatus(val loading: Boolean = false, val problem: String? = null, val label: String = "未同步", val partial: Boolean = false)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +57,7 @@ fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewMode
             problem != null -> if (sshStatus == "等待核对主机身份") sshStatus else "连接或同步失败"
             workspace?.online == true -> "在线"
             else -> workspace?.connection ?: sshStatus ?: "未同步"
-        })
+        }, partial = workspace?.hasMoreProjects == true)
     }
     ProjectList(groups, hosts, statuses, busyHosts = workspaces.filterValues { it.busy }.keys +
         if (connecting) hosts.map { it.id }.toSet() else emptySet(), open = open,
@@ -90,6 +90,7 @@ fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewMode
                 }
                 if (!workspace?.snapshotTime.isNullOrBlank()) Text("最近同步：${workspace?.snapshotTime}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (workspace?.hasMoreProjects == true) TextButton(onClick = workspace::loadMoreProjects, enabled = workspace.online && !workspace.busy) { Text("加载更早的项目与对话") }
                 if (workspace?.busy == true) TextButton(onClick = workspace::cancelWork) { Text("取消同步") }
                 else TextButton(onClick = { vm.syncProjects(host) }, enabled = !connecting,
                     modifier = Modifier.testTag("project-host-sync:${host.id}")) {
@@ -171,7 +172,7 @@ fun ProjectList(groups: List<ProjectGroup>, hosts: List<Host>,
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(host.name, style = MaterialTheme.typography.titleMedium,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("${projects.size} 个项目 · ${projects.sumOf { it.sessions.size }} 条对话",
+                            Text("${if (status.partial) "已加载 " else ""}${projects.size} 个项目 · ${projects.sumOf { it.sessions.size }} 条对话",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (status.loading || status.problem != null) Text(status.label, style = MaterialTheme.typography.bodySmall,
                                 color = if (status.loading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)

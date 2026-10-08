@@ -46,11 +46,19 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     var detail by mutableStateOf<JSONObject?>(null); private set
     var graphScope by mutableStateOf("head"); private set
     var snapshotTime by mutableStateOf(""); private set
-    private var sessionCursor: String? = null
+    private var sessionCursor by mutableStateOf<String?>(null)
+    private var projectCursor by mutableStateOf<String?>(null)
+    private var titleSearch = ""
+    val hasMoreProjects get() = !projectCursor.isNullOrBlank()
+    var models by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var optionsLoading by mutableStateOf(false); private set
+    var optionsError by mutableStateOf<String?>(null); private set
+    private var optionsJob: Job? = null
+    val maintainsConnection get() = eventsJob?.isActive == true && api != null
     private var historyCursor by mutableStateOf<String?>(null)
     val hasMoreHistory get() = !historyCursor.isNullOrBlank()
     private var graphCursor: String? = null
-    val hasMoreSessions get() = !sessionCursor.isNullOrBlank()
+    val hasMoreSessions get() = if (titleSearch.isBlank()) hasMoreProjects else !sessionCursor.isNullOrBlank()
     val hasMoreCommits get() = !graphCursor.isNullOrBlank()
     private var api: HostApi? = null
     val online get() = connection == "在线"
@@ -66,7 +74,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private val cacheDir = File(application.noBackupFilesDir, "workspace").apply { mkdirs() }
 
     fun disconnect() {
-        eventsJob?.cancel(); workJob?.cancel(); api?.close(); api = null; connection = "已断开 · 电脑任务继续"
+        eventsJob?.cancel(); workJob?.cancel(); optionsJob?.cancel(); api?.close(); api = null; connection = "已断开 · 电脑任务继续"
     }
     fun clearCache() = work {
         withContext(Dispatchers.IO) {
@@ -183,7 +191,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearSearch() { searchResults = null; searchCursor = null }
     fun browseProject(path: String) {
         clearSession(); clearSearch()
-        sessions = projectSessions; sessionCursor = null
+        sessions = projectSessions; sessionCursor = null; titleSearch = ""
         project = path
     }
     fun openOffline(id: String) {
@@ -193,7 +201,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         work {
             sessions = emptyList()
             file("sessions").takeIf { it.exists() }?.let {
-                val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt")
+                val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }
             }
             val cachedGit = file("git").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
             project = cachedGit?.string("root") ?: ""
@@ -207,18 +215,24 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         reopen = reconnect
         if (hostId == id && api != null && connection == "在线") return
         eventsJob?.cancel(); api?.close(); saveDraft()
-        hostId = id; selected = null; messages = emptyList(); gitState = null; commits = emptyList(); runs = emptyList(); approvals = emptyList()
+        if (hostId != id) { selected = null; messages = emptyList(); gitState = null; commits = emptyList() }
+        hostId = id; runs = emptyList(); approvals = emptyList()
         api = HostApi(port, token)
         work(onFailure = { projectSyncError = it }) {
             projectSyncError = null
             file("sessions").takeIf { it.exists() }?.let {
-                val cached = JSONObject(it.readText()); sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt")
+                val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }
             }
             val health = api!!.get("health")
             check(health.getInt("protocol") == 1) { "电脑服务协议不兼容" }
             refreshSnapshot()
-            loadSessions()
             startEvents()
+            loadSessions()
+            selected?.let { thread ->
+                val result = api!!.get("sessions/${thread.getString("id")}")
+                selected = result; historyCursor = result.string("nextCursor").ifBlank { null }
+                messages = parseTurns(result); cacheMessages()
+            }
         }
     }
     private suspend fun refreshSnapshot() {
@@ -231,7 +245,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             var backoff = 1000L
             while (isActive) {
                 try {
-                    api!!.events(cursor).collect { event ->
+                    api!!.events(cursor, onConnected = { viewModelScope.launch { connection = "在线" } }).collect { event ->
                         processEvent(event); cursor = event.getLong("seq"); connection = "在线"; backoff = 1000
                     }
                 } catch (e: CancellationException) { throw e }
@@ -313,25 +327,51 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         projectSyncError = null
         loadSessions(search, more)
     }
+    fun loadMoreProjects() = refreshSessions(more = true)
     private suspend fun loadSessions(search: String = "", more: Boolean = false) {
         val service = api ?: error("请先连接主机以同步项目")
-        if (search.isBlank() && !more) {
-            val all = readAllSessions { next -> service.get("sessions", next?.let { mapOf("cursor" to it) } ?: emptyMap()) }
-            sessions = all
-            projectSessions = all
-            sessionCursor = null
+        val query = mutableMapOf<String, String>()
+        if (search.isNotBlank()) query["search"] = search
+        val next = if (search.isBlank()) projectCursor else sessionCursor
+        if (more) query["cursor"] = next ?: return
+        val result = service.get("sessions", query)
+        val page = result.optJSONArray("data").objects()
+        val nextCursor = result.string("nextCursor").ifBlank { null }
+        titleSearch = search
+        if (search.isBlank()) {
+            projectSessions = mergeSessionPage(projectSessions, page, more)
+            sessions = projectSessions
+            projectCursor = nextCursor
             snapshotTime = java.time.Instant.now().toString()
             cacheSessions()
-            return
+        } else {
+            sessions = ((if (more) sessions else emptyList()) + page).distinctBy { it.getString("id") }
+            sessionCursor = nextCursor
         }
-        val query = mutableMapOf("search" to search)
-        if (more) sessionCursor?.let { query["cursor"] = it }
-        val result = service.get("sessions", query)
-        sessions = ((if (more) sessions else emptyList()) + result.optJSONArray("data").objects()).distinctBy { it.getString("id") }
-        sessionCursor = result.string("nextCursor").ifBlank { null }
     }
-    private fun cacheSessions() {
-        writeCache("sessions", JSONObject().put("data", JSONArray(projectSessions)).put("syncedAt", snapshotTime).toString())
+    private suspend fun cacheSessions() = withContext(Dispatchers.IO) {
+        writeCache("sessions", JSONObject().put("data", JSONArray(projectSessions)).put("syncedAt", snapshotTime).put("nextCursor", projectCursor).toString())
+    }
+    fun loadExecutionOptions() {
+        optionsJob?.cancel()
+        optionsJob = viewModelScope.launch {
+            optionsLoading = true; optionsError = null
+            try {
+                val service = api ?: error("连接电脑后可读取模型设置")
+                models = service.get("models", mapOf("cwd" to project)).optJSONArray("data").objects()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { optionsError = e.message ?: "无法读取模型，请确认电脑服务已更新" }
+            finally { optionsLoading = false }
+        }
+    }
+    fun saveExecutionSettings(model: String, effort: String, permission: String, done: () -> Unit) = work {
+        check(!hasUnconfirmedSubmission) { "请先确认上次消息送达" }
+        val thread = selected ?: return@work
+        val result = api!!.post("sessions/${thread.getString("id")}/settings",
+            JSONObject().put("model", model).put("effort", effort).put("permissionMode", permission))
+        selected = JSONObject(thread.toString()).put("executionSettings", result.getJSONObject("executionSettings"))
+        cacheMessages()
+        done()
     }
     fun newSession() = work {
         require(project.isNotBlank()) { "请输入电脑上的项目绝对路径" }
@@ -344,7 +384,11 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     fun openSession(session: JSONObject) = work {
         showSession(session)
         file("history-${session.getString("id")}").takeIf { it.exists() }?.let { cached ->
-            messages = JSONObject(cached.readText()).optJSONArray("messages").objects().map { ChatItem(it.getString("id"), it.getString("role"), it.getString("text"), it.string("turnId"),
+            val history = withContext(Dispatchers.IO) { JSONObject(cached.readText()) }
+            history.optJSONObject("executionSettings")?.let { settings ->
+                selected = JSONObject(session.toString()).put("executionSettings", settings)
+            }
+            messages = history.optJSONArray("messages").objects().map { ChatItem(it.getString("id"), it.getString("role"), it.getString("text"), it.string("turnId"),
                 execution = if (it.has("execution")) it.optBoolean("execution") else it.string("role").let { role -> role.startsWith("命令") || role.startsWith("工具") || role == "文件变更" || role == "计划" },
                 summary = it.string("summary"), status = it.string("status")) }
         }
@@ -445,15 +489,19 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         detail = api!!.get("git/commit", mapOf("cwd" to project, "oid" to oid, "parent" to parent.toString()))
         writeCache("commit", JSONObject().put("project", project).put("result", detail).toString())
     }
-    private fun cacheMessages() {
+    private suspend fun cacheMessages() {
         val id = selected?.optString("id") ?: return
-        writeCache("history-$id", JSONObject().put("messages", JSONArray(messages.takeLast(500).map {
+        val settings = selected?.optJSONObject("executionSettings")
+        val snapshot = messages.takeLast(500)
+        withContext(Dispatchers.IO) { writeCache("history-$id", JSONObject().put("executionSettings", settings).put("messages", JSONArray(snapshot.map {
             JSONObject().put("id", it.id).put("role", it.role).put("text", it.text).put("turnId", it.turnId)
                 .put("execution", it.execution).put("summary", it.summary).put("status", it.status)
-        })).toString())
+        })).toString()) }
     }
-    private fun parseTurns(result: JSONObject): List<ChatItem> = result.optJSONArray("turns").objects().flatMap { turn ->
-        turn.optJSONArray("items").objects().mapNotNull { parseItem(it, turn.string("id")) }
+    private suspend fun parseTurns(result: JSONObject): List<ChatItem> = withContext(Dispatchers.Default) {
+        result.optJSONArray("turns").objects().flatMap { turn ->
+            turn.optJSONArray("items").objects().mapNotNull { parseItem(it, turn.string("id")) }
+        }
     }
     private fun parseItem(item: JSONObject, turnId: String): ChatItem? {
         val type = item.optString("type"); val id = item.optString("id")
@@ -485,5 +533,5 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     private fun boundedText(text: String, limit: Int) = if (text.length > limit) "[前部内容已省略，完整记录保留在电脑]\n" + text.takeLast(limit) else text
-    override fun onCleared() { eventsJob?.cancel(); api?.close() }
+    override fun onCleared() { eventsJob?.cancel(); optionsJob?.cancel(); api?.close() }
 }

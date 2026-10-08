@@ -171,6 +171,7 @@ private fun Chat(vm: WorkspaceViewModel) {
         }
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && active == null && !vm.hasUnconfirmedSubmission)
                 if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     vm.attachments.forEachIndexed { index, attachment ->
                         if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
@@ -183,7 +184,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
                     OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
                         shape = MaterialTheme.shapes.medium)
-                    Button(onClick = vm::send, enabled = !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission),
+                    Button(onClick = vm::send, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission),
                         contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
                         Text(if (vm.hasUnconfirmedSubmission) "确认送达" else "发送")
                     }

@@ -85,8 +85,9 @@ class StartupSyncTest {
                 await { !workspace.busy && workspace.selected?.optString("id") == thread }
                 onMain { workspace.updateDraft("Startup reconnect draft"); syncedAt = workspace.snapshotTime }
                 scenario.recreate()
-                await { !app.hosts.busy && !workspace.busy && workspace.snapshotTime != syncedAt }
+                await { !app.hosts.busy && !workspace.busy }
                 onMain {
+                    assertEquals(syncedAt, workspace.snapshotTime)
                     assertEquals(port, app.hosts.localPort(host.id))
                     assertEquals(thread, workspace.selected!!.getString("id"))
                     assertEquals("Startup reconnect draft", workspace.draft)
@@ -95,8 +96,9 @@ class StartupSyncTest {
                 }
                 scenario.moveToState(Lifecycle.State.CREATED)
                 scenario.moveToState(Lifecycle.State.RESUMED)
-                await { !app.hosts.busy && !workspace.busy && workspace.snapshotTime != syncedAt }
+                await { !app.hosts.busy && !workspace.busy }
                 onMain {
+                    assertEquals(syncedAt, workspace.snapshotTime)
                     assertEquals(port, app.hosts.localPort(host.id))
                     assertEquals(thread, workspace.selected!!.getString("id"))
                     assertEquals("Startup reconnect draft", workspace.draft)

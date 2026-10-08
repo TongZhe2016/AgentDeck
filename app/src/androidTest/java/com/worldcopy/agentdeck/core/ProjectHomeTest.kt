@@ -8,7 +8,7 @@ import com.worldcopy.agentdeck.AgentDeckApplication
 import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.model.Host
 import com.worldcopy.agentdeck.feature.projects.groupProjects
-import com.worldcopy.agentdeck.feature.workspace.readAllSessions
+import com.worldcopy.agentdeck.feature.workspace.mergeSessionPage
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,14 +36,9 @@ class ProjectHomeTest {
         }
     }
 
-    @Test fun allPagesKeepSameNameFoldersAndHostsSeparate() = runBlocking {
-        val pages = mutableListOf<String?>()
-        val all = readAllSessions { cursor ->
-            pages += cursor
-            if (cursor == null) JSONObject().put("data", JSONArray((1..40).map { thread("t$it", "/work/app") })).put("nextCursor", "older")
-            else JSONObject().put("data", JSONArray(listOf(thread("t40", "/work/app"), thread("t41", "/archive/app")))).put("nextCursor", JSONObject.NULL)
-        }
-        assertEquals(listOf(null, "older"), pages)
+    @Test fun pagesMergeOnDemandAndKeepSameNameFoldersAndHostsSeparate() {
+        val first = (1..40).map { thread("t$it", "/work/app") }
+        val all = mergeSessionPage(first, listOf(thread("t40", "/work/app"), thread("t41", "/archive/app")), more = true)
         assertEquals(41, all.size)
         val a = Host(id = "A", name = "Ubuntu", address = "localhost", username = "fixture")
         val b = a.copy(id = "B", name = "Mac")

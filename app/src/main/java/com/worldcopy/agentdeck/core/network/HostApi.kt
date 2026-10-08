@@ -63,7 +63,7 @@ class HostApi(private val port: Int, private val token: String) {
             result.getString("text")
         }
     }
-    fun events(after: Long) = callbackFlow {
+    fun events(after: Long, onConnected: () -> Unit = {}) = callbackFlow {
         val call = client.newCall(request("events", mapOf("after" to after.toString())).build())
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { close(e) }
@@ -74,6 +74,7 @@ class HostApi(private val port: Int, private val token: String) {
                         if (it.code == 401) throw HostApiAuthException()
                         if (!it.isSuccessful) error("事件流不可用 (${it.code})")
                         val source = it.body?.source() ?: error("事件流为空")
+                        onConnected()
                         while (!call.isCanceled()) {
                             val line = source.readUtf8Line() ?: break
                             if (line.startsWith("data: ") && !trySend(JSONObject(line.removePrefix("data: "))).isSuccess) {

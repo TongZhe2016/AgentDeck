@@ -53,7 +53,10 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
-        (application as AgentDeckApplication).hosts.syncProjects()
+        (application as AgentDeckApplication).let { app ->
+            app.ensureConnectionService()
+            app.hosts.syncProjects(refreshConnected = false)
+        }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); readTarget(intent) }
     private fun readTarget(intent: Intent) {
@@ -86,10 +89,18 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     val imeVisible = WindowInsets.isImeVisible
     BackHandler(enabled = workspaceId == null && tab != 0) { tab = 0 }
     fun navigate(index: Int) { tab = index; workspaceId = null }
-    fun startBackground() { context.startForegroundService(Intent(context, ConnectionService::class.java)) }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { startBackground() }
+    fun startBackground() { app.updateKeepConnected(true) }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (app.keepConnected) app.ensureConnectionService() }
     LaunchedEffect(vm.message) { vm.message?.let { snackbar.showSnackbar(it); vm.dismissMessage() } }
     LaunchedEffect(vm.hosts.map { it.id }) {
+        if ((context as? ComponentActivity)?.lifecycle?.currentState?.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) == true) {
+            app.ensureConnectionService()
+            val preferences = context.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE)
+            if (app.keepConnected && vm.hosts.isNotEmpty() && Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("notificationAsked", false)) {
+                preferences.edit().putBoolean("notificationAsked", true).apply()
+                permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         vm.hosts.forEach { host ->
             val workspace = app.workspace(host.id)
             if (workspace.connection == "服务未连接") workspace.openOffline(host.id)
@@ -119,12 +130,11 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
                 }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface), actions = {
                 TextButton(onClick = {
-                    if (ConnectionService.active) context.stopService(Intent(context, ConnectionService::class.java))
-                    else if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    else startBackground()
+                    if (app.keepConnected) app.updateKeepConnected(false)
+                    else { startBackground(); if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 }) {
                     DeckGlyph(if (ConnectionService.active) DeckIcon.Check else DeckIcon.Sync, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp)); Text(if (ConnectionService.active) "后台同步中" else "后台同步")
+                    Spacer(Modifier.width(6.dp)); Text(if (app.keepConnected) "保持连接" else "后台连接已关")
                 }
                 Box {
                     IconButton(onClick = { menu = true }) { DeckGlyph(DeckIcon.More, "更多设置") }
