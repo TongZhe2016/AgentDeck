@@ -80,12 +80,14 @@ class UiLayoutTest {
         compose.onNodeWithTag("thread:${first.id}:$threadId").performClick()
         compose.waitUntil(10000) { app.workspaces[first.id]?.messages?.size == 2 }
         capture("chat")
-        compose.onNodeWithText("输入消息").performTextInput("草稿仍可继续编辑")
-        compose.onNodeWithText("发送").assertIsDisplayed()
-        compose.onNodeWithText("附件").performClick()
-        compose.onNodeWithText("图片").assertIsDisplayed()
-        compose.onNodeWithText("拍照").assertIsDisplayed()
-        compose.onNodeWithText("语音转文字").assertIsDisplayed()
+        compose.onNodeWithText("Graph").performClick().assertIsSelected()
+        compose.onNodeWithText("会话").performClick().assertIsSelected()
+        compose.onNodeWithText("输入消息").performScrollTo().performTextInput("草稿仍可继续编辑")
+        compose.onNodeWithText("发送").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("附件").performScrollTo().performClick()
+        compose.onNodeWithText("图片").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("拍照").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("语音转文字").performScrollTo().assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         compose.onNodeWithText("Changes").performClick()
         compose.onNodeWithTag("git-changes").performScrollToNode(hasText("ProjectsScreen.kt"))
@@ -120,7 +122,9 @@ class UiLayoutTest {
         val variant = InstrumentationRegistry.getArguments().getString("uiVariant") ?: "portrait"
         val surface = if (name == "diff" || name == "host-menu") compose.onNode(isDialog()) else compose.onRoot()
         surface.captureToImage().asAndroidBitmap().let { bitmap ->
-            File(app.cacheDir, "ui-$variant-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File) ?: app.cacheDir
+            output.mkdirs()
+            File(output, "ui-$variant-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
         }
     }

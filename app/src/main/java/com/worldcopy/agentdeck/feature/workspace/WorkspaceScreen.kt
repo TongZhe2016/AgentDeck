@@ -50,15 +50,19 @@ fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, proje
             Column(Modifier.weight(1f)) {
                 Text(vm.hostName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(vm.connection, style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (vm.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            PrimaryTabRow(selectedTabIndex = tab, modifier = Modifier.weight(3f), divider = {}) {
+                listOf("会话", "Changes", "Graph").forEachIndexed { index, title ->
+                    Tab(selected = tab == index, onClick = { tab = index }) {
+                        Text(title, Modifier.padding(vertical = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
         }
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
-            listOf("会话", "Changes", "Graph").forEachIndexed { index, title ->
-                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title, maxLines = 1) })
-            }
-        }
         when (tab) { 0 -> if (vm.selected == null) SessionList(vm, projectScope) else key(vm, vm.selected?.string("id")) { Chat(vm) }; 1 -> Changes(vm); 2 -> Graph(vm) { tab = 0 } }
     }
     vm.error?.let { message -> AlertDialog(onDismissRequest = vm::dismissError, title = { Text("操作未完成") }, text = { SelectionContainer { Text(message) } },
@@ -135,74 +139,83 @@ private fun Chat(vm: WorkspaceViewModel) {
     val timeline = remember(vm.messages) { executionTimeline(vm.messages) }
     val runs = vm.runs.filter { it.optString("threadId") == thread.getString("id") }
     val active = runs.firstOrNull { it.optString("state") in listOf("queued", "running", "waiting_approval", "waiting_input", "unknown") }
-    Column(Modifier.fillMaxSize().imePadding()) {
-        LazyColumn(Modifier.weight(1f).testTag("chat-messages"), state = listState, reverseLayout = true,
-            contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (active == null && runs.isNotEmpty()) item(key = "last-run") {
-                Text("上一轮：${stateName(runs.first().optString("state"))}")
-                runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-            if (active != null) item(key = "active-run") {
-                if (vm.messages.none { it.execution && it.turnId == active.string("turnId") }) {
-                    ExecutionCard(active.string("turnId").ifBlank { active.getString("id") }, emptyList(), active.string("state"))
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+        val composerMaxHeight = maxHeight * 0.6f
+        Column(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.weight(1f).testTag("chat-messages"), state = listState, reverseLayout = true,
+                contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (active == null && runs.isNotEmpty()) item(key = "last-run") {
+                    Column {
+                        Text("上一轮：${stateName(runs.first().optString("state"))}")
+                        runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
                 }
-                active.string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (active.optString("state") == "unknown") TextButton(onClick = { vm.reconcile(active) }, enabled = !vm.busy) { Text("核实执行结果") }
-                else TextButton(onClick = { vm.cancel(active) }, enabled = !vm.busy && active.string("turnId").isNotBlank()) { Text("取消本轮执行") }
-            }
-            items(vm.approvals.filter { a -> runs.any { it.optString("id") == a.optString("runId") } }.asReversed(), key = { it.getString("id") }) { approval ->
-                ApprovalCard(vm, approval)
-            }
-            items(timeline.asReversed(), key = { it.key }) { entry ->
-                val item = entry.message
-                if (item == null) {
-                    val run = runs.firstOrNull { it.string("turnId") == entry.turnId }
-                    val latest = timeline.lastOrNull { it.message == null && it.turnId == entry.turnId }?.key == entry.key
-                    ExecutionCard(entry.key, entry.steps, if (latest) run?.string("state") ?: "completed" else "completed")
-                } else Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                    shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(start = if (item.role == "你") 24.dp else 0.dp)) {
-                    Column(Modifier.padding(12.dp)) {
-                        SelectionContainer { MessageText(item.text) }
+                if (active != null) item(key = "active-run") {
+                    Column {
+                        if (vm.messages.none { it.execution && it.turnId == active.string("turnId") }) {
+                            ExecutionCard(active.string("turnId").ifBlank { active.getString("id") }, emptyList(), active.string("state"))
+                        }
+                        active.string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        if (active.optString("state") == "unknown") TextButton(onClick = { vm.reconcile(active) }, enabled = !vm.busy) { Text("核实执行结果") }
+                        else TextButton(onClick = { vm.cancel(active) }, enabled = !vm.busy && active.string("turnId").isNotBlank()) { Text("取消本轮执行") }
+                    }
+                }
+                items(vm.approvals.filter { a -> runs.any { it.optString("id") == a.optString("runId") } }.asReversed(), key = { it.getString("id") }) { approval ->
+                    ApprovalCard(vm, approval)
+                }
+                items(timeline.asReversed(), key = { it.key }) { entry ->
+                    val item = entry.message
+                    if (item == null) {
+                        val run = runs.firstOrNull { it.string("turnId") == entry.turnId }
+                        val latest = timeline.lastOrNull { it.message == null && it.turnId == entry.turnId }?.key == entry.key
+                        ExecutionCard(entry.key, entry.steps, if (latest) run?.string("state") ?: "completed" else "completed")
+                    } else Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(start = if (item.role == "你") 24.dp else 0.dp)) {
+                        Column(Modifier.padding(12.dp)) {
+                            SelectionContainer { MessageText(item.text) }
+                        }
+                    }
+                }
+                if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
+                item(key = "thread-header") {
+                    Column {
+                        Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
+                        Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
                     }
                 }
             }
-            if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
-            item(key = "thread-header") {
-                Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
-                Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!thread.optBoolean("managed")) Button(onClick = { resume = true }, enabled = !vm.busy) { Text("恢复此会话") }
+            if (vm.messages.isNotEmpty() && listState.canScrollBackward) TextButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
+                Text("查看最新消息")
             }
-        }
-        if (vm.messages.isNotEmpty() && listState.canScrollBackward) TextButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
-            Text("查看最新消息")
-        }
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && active == null && !vm.hasUnconfirmedSubmission)
-                if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    vm.attachments.forEachIndexed { index, attachment ->
-                        if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
-                        if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
-                        InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
-                            label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"}") },
-                            trailingIcon = { DeckGlyph(DeckIcon.Close, modifier = Modifier.size(16.dp)) })
+            Surface(modifier = Modifier.heightIn(max = composerMaxHeight), color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && active == null && !vm.hasUnconfirmedSubmission)
+                    if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        vm.attachments.forEachIndexed { index, attachment ->
+                            if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
+                            if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
+                            InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
+                                label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"}") },
+                                trailingIcon = { DeckGlyph(DeckIcon.Close, modifier = Modifier.size(16.dp)) })
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                        OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
+                            shape = MaterialTheme.shapes.medium)
+                        Button(onClick = vm::send, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission),
+                            contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
+                            Text(if (vm.hasUnconfirmedSubmission) "确认送达" else "发送")
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        com.worldcopy.agentdeck.feature.media.MediaInput(vm)
+                        Text("草稿保存在此设备", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                    OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
-                        shape = MaterialTheme.shapes.medium)
-                    Button(onClick = vm::send, enabled = vm.online && !vm.busy && thread.optBoolean("managed") && (active == null || vm.hasUnconfirmedSubmission),
-                        contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
-                        Text(if (vm.hasUnconfirmedSubmission) "确认送达" else "发送")
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    com.worldcopy.agentdeck.feature.media.MediaInput(vm)
-                    Text("草稿保存在此设备", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
-                }
             }
-        }
 
+        }
     }
     if (resume) ConfirmDialog("恢复原有会话", "请确认电脑上的原会话已停止。恢复后将由 AgentDeck 服务继续执行。", { resume = false }) { resume = false; vm.resume() }
 }
