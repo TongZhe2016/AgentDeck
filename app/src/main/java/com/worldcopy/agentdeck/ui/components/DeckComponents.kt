@@ -18,7 +18,7 @@ import com.worldcopy.agentdeck.R
 
 enum class DeckIcon(@param:DrawableRes val resource: Int) {
     Folder(R.drawable.ic_deck_folder), Computer(R.drawable.ic_deck_computer), Key(R.drawable.ic_deck_key),
-    Inbox(R.drawable.ic_deck_inbox), Sync(R.drawable.ic_deck_sync), More(R.drawable.ic_deck_more),
+    Inbox(R.drawable.ic_deck_inbox), Bell(R.drawable.ic_deck_bell), Sync(R.drawable.ic_deck_sync), More(R.drawable.ic_deck_more),
     Add(R.drawable.ic_deck_add), Chevron(R.drawable.ic_deck_chevron), Back(R.drawable.ic_deck_arrow),
     Chat(R.drawable.ic_deck_chat), Send(R.drawable.ic_deck_send), Upload(R.drawable.ic_deck_upload),
     Shield(R.drawable.ic_deck_shield), Check(R.drawable.ic_deck_check), Warning(R.drawable.ic_deck_warning), Search(R.drawable.ic_deck_search),

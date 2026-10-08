@@ -34,6 +34,10 @@ class UiLayoutTest {
     }
 
     @Test fun navigationProjectChatAndDiffRemainReachable() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+                app.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         val hosts = listOf(
             Host(name = "MacBook Pro", address = "mac.local", username = "demo", authMethod = AuthMethod.PASSWORD),
             Host(name = "Ubuntu · 开发服务器", address = "ubuntu.local", username = "demo", authMethod = AuthMethod.PASSWORD),
@@ -99,12 +103,14 @@ class UiLayoutTest {
         compose.onNodeWithText("编辑").performScrollTo().performClick()
         compose.onNodeWithText("主机名称").assertExists()
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithTag("nav-1").performClick()
+        compose.onNodeWithContentDescription("更多设置").performClick()
+        compose.onNodeWithText("密钥", substring = false).performClick()
         capture("keys")
         compose.onNodeWithText("导入已有密钥").performScrollTo().performClick()
         compose.onNodeWithTag("import-private").performScrollTo().assertExists()
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithTag("nav-2").performClick()
+        compose.onNodeWithContentDescription("返回项目").performClick()
+        compose.onNodeWithContentDescription("待处理").performClick()
         compose.onNodeWithText("暂无待处理事项").assertExists()
         capture("pending")
     }

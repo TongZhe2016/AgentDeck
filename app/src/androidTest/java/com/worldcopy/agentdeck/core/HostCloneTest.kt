@@ -36,7 +36,6 @@ class HostCloneTest {
         ready()
         compose.runOnUiThread { app.hosts.save(host, password) {} }
         compose.waitUntil(10000) { !app.hosts.busy && app.hosts.hosts.any { it.id == host.id } }
-        compose.onNodeWithTag("nav-0").performClick()
     }
 
     private fun openClone(host: Host) {

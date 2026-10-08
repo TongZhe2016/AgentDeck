@@ -18,7 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.worldcopy.agentdeck.ui.components.*
 import com.worldcopy.agentdeck.ui.theme.DeckNavy
@@ -86,7 +86,6 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
     val pendingCount = app.workspaces.values.sumOf { it.approvals.size }
-    val imeVisible = WindowInsets.isImeVisible
     BackHandler(enabled = workspaceId == null && tab != 0) { tab = 0 }
     fun navigate(index: Int) { tab = index; workspaceId = null }
     fun startBackground() { app.updateKeepConnected(true) }
@@ -119,26 +118,38 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
         consumeTarget()
     } }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 600.dp
+        val showConnectionLabel = maxWidth >= 440.dp && LocalDensity.current.fontScale <= 1.3f
         Scaffold(topBar = {
             if (workspaceId == null) TopAppBar(title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (tab != 0) Text(if (tab == 1) "密钥" else "待处理")
+                else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Surface(Modifier.size(36.dp), shape = MaterialTheme.shapes.small, color = DeckNavy) {
                         Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null)
                     }
                     Text("掌舵", style = MaterialTheme.typography.titleLarge)
+                    IconButton(onClick = { navigate(2) }) {
+                        BadgedBox(badge = { if (pendingCount > 0) Badge { Text(pendingCount.toString()) } }) {
+                            DeckGlyph(DeckIcon.Bell, "待处理")
+                        }
+                    }
                 }
+            }, navigationIcon = {
+                if (tab != 0) IconButton(onClick = { navigate(0) }) { DeckGlyph(DeckIcon.Back, "返回项目") }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface), actions = {
                 TextButton(onClick = {
                     if (app.keepConnected) app.updateKeepConnected(false)
                     else { startBackground(); if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 }) {
-                    DeckGlyph(if (ConnectionService.active) DeckIcon.Check else DeckIcon.Sync, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp)); Text(if (app.keepConnected) "保持连接" else "后台连接已关")
+                    val label = if (app.keepConnected) "保持连接" else "后台连接已关"
+                    DeckGlyph(if (ConnectionService.active) DeckIcon.Check else DeckIcon.Sync,
+                        description = if (showConnectionLabel && tab == 0) null else label, modifier = Modifier.size(20.dp))
+                    if (showConnectionLabel && tab == 0) { Spacer(Modifier.width(6.dp)); Text(label) }
                 }
                 Box {
                     IconButton(onClick = { menu = true }) { DeckGlyph(DeckIcon.More, "更多设置") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("密钥") }, leadingIcon = { DeckGlyph(DeckIcon.Key) },
+                            onClick = { navigate(1); menu = false })
                         if (Build.VERSION.SDK_INT >= 31) DropdownMenuItem(
                             text = { Text(if (dynamicColor) "使用掌舵配色" else "使用系统壁纸配色") },
                             onClick = { changeDynamicColor(!dynamicColor); menu = false })
@@ -148,12 +159,8 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
                     }
                 }
             })
-        }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
-            if (!wide && !imeVisible) DeckNavigation(tab, pendingCount, false, ::navigate)
-        }) { padding ->
-            Row(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
-                if (wide) DeckNavigation(tab, pendingCount, true, ::navigate)
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+        }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+                Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         shared?.let { input ->
             val selectedWorkspace = workspaceId?.let { app.workspaces[it] }
@@ -212,26 +219,6 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
             }
         }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeckNavigation(selected: Int, pending: Int, rail: Boolean, navigate: (Int) -> Unit) {
-    val destinations = listOf("项目" to DeckIcon.Folder, "密钥" to DeckIcon.Key, "待处理" to DeckIcon.Inbox)
-    @Composable fun glyph(index: Int) {
-        BadgedBox(badge = { if (index == 2 && pending > 0) Badge { Text(pending.toString()) } }) { DeckGlyph(destinations[index].second) }
-    }
-    if (rail) NavigationRail(containerColor = MaterialTheme.colorScheme.surface, windowInsets = WindowInsets(0, 0, 0, 0)) {
-        destinations.forEachIndexed { index, (label, _) ->
-            NavigationRailItem(selected = selected == index, onClick = { navigate(index) }, icon = { glyph(index) },
-                label = { Text(label) }, modifier = Modifier.testTag("nav-$index"))
-        }
-    } else NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp) {
-        destinations.forEachIndexed { index, (label, _) ->
-            NavigationBarItem(selected = selected == index, onClick = { navigate(index) }, icon = { glyph(index) },
-                label = { Text(label) }, modifier = Modifier.testTag("nav-$index"))
         }
     }
 }
