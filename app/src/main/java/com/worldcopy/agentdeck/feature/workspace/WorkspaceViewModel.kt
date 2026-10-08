@@ -5,6 +5,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.worldcopy.agentdeck.core.network.HostApi
+import com.worldcopy.agentdeck.core.network.ActiveWriterException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -29,6 +30,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private var searchCursor by mutableStateOf<String?>(null)
     val hasMoreSearch get() = searchCursor != null
     var selected by mutableStateOf<JSONObject?>(null); private set
+    val hasExternalWriter get() = selected?.string("writerState") == "external"
+    var showFork by mutableStateOf(false); private set
+    var writerNotice by mutableStateOf<String?>(null); private set
     var messages by mutableStateOf<List<ChatItem>>(emptyList()); private set
     var runs by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -206,6 +210,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             busy = true
             try { action() }
             catch (e: CancellationException) { throw e }
+            catch (_: ActiveWriterException) { markExternalWriter() }
             catch (e: Exception) { val message = e.message ?: "请求失败"; error = message; onFailure(message) }
             finally { busy = false }
         }
@@ -472,11 +477,46 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         cacheMessages()
     }
     private fun showSession(session: JSONObject) {
+        showFork = false; writerNotice = null
         saveDraft(); selected = session; project = session.optString("cwd"); messages = emptyList(); historyCursor = null
         val cached = file("draft-${session.getString("id")}").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
         draft = cached?.optString("draft") ?: ""; requestId = cached?.string("requestId")?.ifBlank { null }; pendingText = cached?.string("pendingText")?.ifBlank { null }
         attachments = cached?.optJSONArray("attachments").objects().map { DraftAttachment(it.getString("id"), it.getString("path"), it.getString("mime"), it.optBoolean("uploaded")) }
         pendingAttachments = cached?.optJSONArray("pendingAttachments")?.let { a -> (0 until a.length()).map { a.getString(it) } }
+    }
+    private fun markExternalWriter() {
+        selected = selected?.let { JSONObject(it.toString()).put("writerState", "external") }
+        writerNotice = null; showFork = false
+    }
+    fun takeOverSession() = work {
+        val id = selected?.getString("id") ?: return@work
+        writerNotice = null
+        try {
+            val result = api!!.post("sessions/$id/takeover")
+            if (result.getBoolean("acquired")) {
+                selected = result.getJSONObject("thread")
+                projectSessions = projectSessions.map { if (it.string("id") == id) selected!! else it }
+                sessions = sessions.map { if (it.string("id") == id) selected!! else it }
+                cacheSessions()
+                val history = api!!.get("sessions/$id")
+                selected = history; historyCursor = history.string("nextCursor").ifBlank { null }
+                messages = parseTurns(history); cacheMessages()
+            } else {
+                selected = JSONObject(selected!!.toString()).put("writerState", "external")
+                writerNotice = "有其他用户正在使用"
+            }
+        } finally { showFork = true }
+    }
+    fun forkSession() = work {
+        val id = selected?.getString("id") ?: return@work
+        val result = api!!.post("sessions/$id/fork")
+        showSession(result)
+        projectSessions = listOf(result) + projectSessions.filter { it.string("id") != result.string("id") }
+        sessions = listOf(result) + sessions.filter { it.string("id") != result.string("id") }
+        cacheSessions()
+        val history = api!!.get("sessions/${result.getString("id")}")
+        selected = history; historyCursor = history.string("nextCursor").ifBlank { null }
+        messages = parseTurns(history); cacheMessages()
     }
     private suspend fun resumeHistoryIfNeeded(thread: JSONObject) {
         if (thread.optBoolean("managed")) return
@@ -504,6 +544,12 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         saveDraft()
         val result = api!!.post("runs", JSONObject().put("threadId", session.getString("id")).put("clientRequestId", id).put("text", pendingText).put("attachments", JSONArray(pendingAttachments ?: emptyList<String>())))
         runs = listOf(result) + runs.filter { it.optString("id") != result.optString("id") }
+        if (result.string("writerState") == "external") {
+            markExternalWriter()
+            requestId = null; pendingText = null; pendingAttachments = null
+            saveDraft()
+            return@work
+        }
         if (draft == pendingText) draft = ""
         requestId = null; pendingText = null; pendingAttachments = null
         attachments.forEach { File(it.path).delete() }; attachments = emptyList(); saveDraft()

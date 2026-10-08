@@ -152,6 +152,9 @@ internal class WorkspaceFixtureService(
     val events = LinkedBlockingQueue<String>()
     var managed = initiallyManaged
     var refuseResume = false
+    var externalWriter = false
+    var refuseTakeover = false
+    var runWriterConflict = false
     val writes = CopyOnWriteArrayList<Pair<String, JSONObject>>()
     var settings = JSONObject().put("model", "gpt-6.1-sol").put("effort", "high").put("permissionMode", "on-request")
     private val sockets = CopyOnWriteArrayList<Socket>()
@@ -165,15 +168,22 @@ internal class WorkspaceFixtureService(
         }
     }
     private fun respond(socket: Socket) {
-        val input = socket.getInputStream().bufferedReader()
-        val path = input.readLine().split(' ')[1]
+        val input = socket.getInputStream().buffered()
+        fun readLine(): String = buildString {
+            while (true) {
+                val byte = input.read()
+                if (byte == -1 || byte == 10) break
+                if (byte != 13) append(byte.toChar())
+            }
+        }
+        val path = readLine().split(' ')[1]
         var length = 0
         while (true) {
-            val header = input.readLine() ?: break
+            val header = readLine()
             if (header.isEmpty()) break
             if (header.startsWith("Content-Length:", ignoreCase = true)) length = header.substringAfter(':').trim().toInt()
         }
-        val body = CharArray(length)
+        val body = ByteArray(length)
         var offset = 0
         while (offset < length) offset += input.read(body, offset, length - offset)
         val output = socket.getOutputStream()
@@ -207,6 +217,18 @@ internal class WorkspaceFixtureService(
                     .put("defaultReasoningEffort", "high").put("supportedReasoningEfforts", JSONArray(listOf("low", "high").map {
                         JSONObject().put("reasoningEffort", it)
                     })))))
+            path == "/v1/sessions/thread/takeover" -> {
+                if (refuseTakeover) JSONObject().put("acquired", false).put("message", "有其他用户正在使用").put("writerState", "external")
+                else {
+                    externalWriter = false; managed = true
+                    JSONObject().put("acquired", true).put("thread", JSONObject().put("id", "thread").put("cwd", "/fixture")
+                        .put("managed", true).put("writerState", "owned").put("executionSettings", settings))
+                }
+            }
+            path == "/v1/sessions/thread/fork" -> JSONObject().put("id", "forked").put("forkedFromId", "thread")
+                .put("cwd", "/fixture").put("managed", true).put("writerState", "owned").put("executionSettings", settings)
+            path.startsWith("/v1/sessions/forked") -> JSONObject().put("id", "forked").put("cwd", "/fixture").put("managed", true)
+                .put("writerState", "owned").put("executionSettings", settings).put("turns", JSONArray(listOf(JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             path == "/v1/sessions/thread/settings" -> {
                 check(managed)
                 settings = JSONObject(String(body))
@@ -218,11 +240,13 @@ internal class WorkspaceFixtureService(
             }
             path == "/v1/runs" -> {
                 check(managed)
-                JSONObject().put("id", "run").put("threadId", "thread").put("turnId", "next-turn").put("state", "running")
+                JSONObject().put("id", "run").put("threadId", "thread").put("turnId", "next-turn")
+                    .put("state", if (runWriterConflict) "failed" else "running")
+                    .put("writerState", if (runWriterConflict) "external" else "owned")
             }
             path.startsWith("/v1/sessions/thread") -> {
                 histories.incrementAndGet()
-                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", managed).put("executionSettings", settings).put("turns", JSONArray(listOf(
+                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", managed).put("writerState", if (externalWriter) "external" else "available").put("executionSettings", settings).put("turns", JSONArray(listOf(
                     JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             }
             path.startsWith("/v1/sessions") -> {

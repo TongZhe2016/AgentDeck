@@ -1,7 +1,8 @@
 import { downloadFile } from '../files/download.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { SessionControl } from '../execution/session-control.js';
 import { Coordinator } from '../execution/coordinator.js';
-import { Codex } from '../providers/codex.js';
+import { Codex, isActiveWriterError } from '../providers/codex.js';
 import { Store } from '../storage/store.js';
 import * as git from '../git/git.js';
 import { Attachments } from '../attachments/attachments.js';
@@ -31,6 +32,7 @@ function json(response: ServerResponse, data: unknown, code = 200) {
 export function api(token: string, codex: Codex, store: Store, attachmentDirectory?: string, catalog = new SessionCatalog(codex, store)) {
   const attachments = attachmentDirectory ? new Attachments(store, attachmentDirectory) : undefined;
   const coordinator = new Coordinator(codex, store, attachments);
+  const control = new SessionControl(codex, store);
   const transcription = attachments ? new Transcription(attachments) : undefined;
   return createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) { json(res, { error: '服务令牌无效' }, 401); return; }
@@ -98,6 +100,11 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         const settings = await effectiveSettings(codex, result); store.saveSettings(result.thread.id, settings);
         json(res, { ...result.thread, executionSettings: settings, managed: true }); return;
       }
+      const controlRoute = path.match(/^\/v1\/sessions\/([^/]+)\/(takeover|fork)$/);
+      if (controlRoute && req.method === 'POST') {
+        const id = decodeURIComponent(controlRoute[1]);
+        json(res, controlRoute[2] === 'takeover' ? await control.takeOver(id) : await control.fork(id)); return;
+      }
       const settingsRoute = path.match(/^\/v1\/sessions\/([^/]+)\/settings$/);
       if (settingsRoute && req.method === 'POST') {
         const id = decodeURIComponent(settingsRoute[1]);
@@ -124,12 +131,13 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         if (req.method === 'GET') {
           const result = await codex.request('thread/read', { threadId: id, includeTurns: false });
           const page = await codex.request('thread/turns/list', { threadId: id, limit: 20, sortDirection: 'desc', itemsView: 'full', cursor: url.searchParams.get('cursor') });
-          json(res, { ...result.thread, turns: page.data.reverse(), nextCursor: page.nextCursor, executionSettings: store.settings(id), managed: store.managed(id) }); return;
+          json(res, { ...result.thread, writerState: await codex.writerState(id), turns: page.data.reverse(), nextCursor: page.nextCursor, executionSettings: store.settings(id), managed: store.managed(id) }); return;
         }
       }
       if (path === '/v1/runs' && req.method === 'POST') {
         const b = await body(req);
-        json(res, await coordinator.start(text(b.clientRequestId, '请求 ID'), text(b.threadId, '会话 ID'), text(b.text, '消息'), b.attachments ?? [])); return;
+        const run = await coordinator.start(text(b.clientRequestId, '请求 ID'), text(b.threadId, '会话 ID'), text(b.text, '消息'), b.attachments ?? []);
+        json(res, { ...run, ...(isActiveWriterError(run.error) ? { writerState: 'external' } : {}) }); return;
       }
       const cancel = path.match(/^\/v1\/runs\/([^/]+)\/cancel$/);
       if (cancel && req.method === 'POST') { json(res, await coordinator.cancel(cancel[1])); return; }
@@ -146,7 +154,7 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       if (approval && req.method === 'POST') { const b = await body(req); coordinator.respond(approval[1], b.decision, b.answers); json(res, { ok: true }); return; }
       json(res, { error: '接口不存在' }, 404);
     } catch (e) {
-      if (!res.headersSent) json(res, { error: (e as Error).message }, 400);
+      if (!res.headersSent) json(res, isActiveWriterError(e) ? { error: '有其他用户正在使用', code: 'active_writer' } : { error: (e as Error).message }, 400);
       else res.end();
     }
   });

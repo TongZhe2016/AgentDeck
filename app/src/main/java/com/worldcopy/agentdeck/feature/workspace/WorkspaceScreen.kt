@@ -26,6 +26,8 @@ import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 @Composable
 fun WorkspaceScreen(vm: WorkspaceViewModel, fromProjects: Boolean = false, projectScope: String? = null, back: () -> Unit) {
@@ -120,6 +122,11 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
 @Composable
 private fun Chat(vm: WorkspaceViewModel) {
     val thread = vm.selected ?: return
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(vm.hasExternalWriter) {
+        if (vm.hasExternalWriter) { focus.clearFocus(); keyboard?.hide() }
+    }
     val onMessageLink = rememberMessageLinkHandler(vm)
     val listState = rememberLazyListState()
     var positioned by remember { mutableStateOf(false) }
@@ -188,28 +195,38 @@ private fun Chat(vm: WorkspaceViewModel) {
             }
             Surface(modifier = Modifier.heightIn(max = composerMaxHeight), color = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 1.dp) {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && active == null && !vm.hasUnconfirmedSubmission)
-                    if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        vm.attachments.forEachIndexed { index, attachment ->
-                            if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
-                            if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
-                            InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
-                                label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"}") },
-                                trailingIcon = { DeckGlyph(DeckIcon.Close, modifier = Modifier.size(16.dp)) })
+                    if (vm.hasExternalWriter) {
+                        vm.writerNotice?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Button(onClick = vm::takeOverSession, enabled = vm.online && !vm.busy,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("takeover-session")) {
+                            Text(if (vm.busy) "正在接管…" else if (vm.writerNotice != null) "重试接管" else "接管会话")
+                        }
+                    } else {
+                        ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && active == null && !vm.hasUnconfirmedSubmission)
+                        if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            vm.attachments.forEachIndexed { index, attachment ->
+                                if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
+                                if (attachment.mime.startsWith("audio/")) TextButton(onClick = { vm.transcribe(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission) { Text("重试转写录音 ${index + 1}") }
+                                InputChip(selected = false, onClick = { vm.removeAttachment(attachment) }, enabled = !vm.busy && !vm.hasUnconfirmedSubmission,
+                                    label = { Text("${if (attachment.mime.startsWith("image")) "图片" else "录音"} ${index + 1} · ${if (attachment.uploaded) "已上传" else "本地"}") },
+                                    trailingIcon = { DeckGlyph(DeckIcon.Close, modifier = Modifier.size(16.dp)) })
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                            OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
+                                shape = MaterialTheme.shapes.medium)
+                            Button(onClick = vm::send, enabled = vm.online && !vm.busy && (active == null || vm.hasUnconfirmedSubmission),
+                                contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
+                                Text(if (vm.hasUnconfirmedSubmission) "确认送达" else if (!thread.optBoolean("managed")) "继续对话" else "发送")
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            com.worldcopy.agentdeck.feature.media.MediaInput(vm)
+                            Text("草稿保存在此设备", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                        OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
-                            shape = MaterialTheme.shapes.medium)
-                        Button(onClick = vm::send, enabled = vm.online && !vm.busy && (active == null || vm.hasUnconfirmedSubmission),
-                            contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
-                            Text(if (vm.hasUnconfirmedSubmission) "确认送达" else if (!thread.optBoolean("managed")) "继续对话" else "发送")
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        com.worldcopy.agentdeck.feature.media.MediaInput(vm)
-                        Text("草稿保存在此设备", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
-                    }
+                    if (vm.showFork) OutlinedButton(onClick = vm::forkSession, enabled = vm.online && !vm.busy,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("fork-session")) { Text("Fork") }
                 }
             }
 

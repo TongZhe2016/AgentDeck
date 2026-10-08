@@ -16,6 +16,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class EventCursorExpired : IOException("事件游标已失效")
+class ActiveWriterException : IOException("有其他用户正在使用")
 class HostApiAuthException : IOException("电脑服务认证失败，请重新连接；若仍失败，请核对高级设置中的服务目录和端口")
 
 class HostApi(private val port: Int, private val token: String) {
@@ -41,6 +42,7 @@ class HostApi(private val port: Int, private val token: String) {
                     val result = response.use {
                         if (it.code == 401) throw HostApiAuthException()
                         val body = JSONObject(it.body?.string() ?: error("服务返回空响应"))
+                        if (!it.isSuccessful && body.optString("code") == "active_writer") throw ActiveWriterException()
                         check(it.isSuccessful) { body.optString("error", "请求失败 (${it.code})") }
                         body
                     }

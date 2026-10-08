@@ -13,6 +13,9 @@ HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Author
 - `GET /v1/sessions/:id?cursor=`：只读历史、managed 标记及已保存的 executionSettings，每页 20 个完整轮次，页内按时间升序；nextCursor 向更早历史翻页。
 - `POST /v1/search {query,project?,cursor?}`：原生正文搜索，每次最多十页，返回命中消息摘要、会话及继续扫描的游标；取消连接会停止后续扫描。
 - `POST /v1/sessions/:id/resume {confirmStopped:true}`：恢复原生 ID，沿用已保存设置。Android 在用户点击“继续对话”或为历史会话保存设置时调用；服务检查活动执行状态，仍在运行则拒绝恢复。仅浏览历史不调用此接口。恢复时不返回完整历史，正文仍按需分页。
+- `POST /v1/sessions/:id/takeover`：通过原生 resume 尝试取得写入权；成功返回 `{acquired:true,thread}`，其中 thread 含实际设置、managed=true、writerState=owned；其他写入者仍占用时返回 `{acquired:false,writerState:"external",message:"有其他用户正在使用"}`。不终止其他进程或删除写入锁。本服务活动执行须先结束或核实。
+- `POST /v1/sessions/:id/fork`：原生 fork 已存历史到新 ID，返回新会话及实际设置、managed=true、writerState=owned；原会话保持原状。
+- 读取会话详情附带 `writerState`：owned（本服务已加载）、external（存在其他端写入锁提示）、available（未发现写入锁）。锁存在不等同于仍被持有，接管接口给出最终结果。恢复／设置时发现 Active Writer 返回 HTTP 400、`code:"active_writer"`；执行派发失败返回的 run 附带 `writerState:"external"`，客户端保留草稿与附件并回到接管入口。
 - `POST /v1/runs {clientRequestId,threadId,text,attachments?:[id]}`：先保存请求身份，再派发。相同 ID 和内容返回已有结果；同 ID 不同内容报错；同会话活动执行互斥。
 - `POST /v1/attachments/:id?threadId=`：上传图片／录音二进制，Content-Type 指定类型，上限 10 MiB；同 ID 重试返回原附件，只能用于所属会话。
 - `GET /v1/attachments/:id`、`DELETE /v1/attachments/:id`：读取／删除附件；已被执行引用的图片保留供原生历史恢复。
