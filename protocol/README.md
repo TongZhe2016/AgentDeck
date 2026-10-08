@@ -6,6 +6,7 @@ HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Author
 - `GET /v1/snapshot`：最近执行、待处理请求、当前事件游标。
 - `GET /v1/events?after=<seq>`：SSE，每条 `data` 包含 `{seq,type,data,createdAt}`，严格按序补发。客户端使用最后成功处理的序号恢复；无效游标需重取快照。事件类型为 `run.updated`、`agent.event`、`approval.requested`、`approval.resolved`。
 - `GET /v1/sessions?search=&cursor=`：Codex 原生会话标题搜索、分页，每页 40 条轻量摘要（id、name、preview、cwd、updatedAt、model、reasoningEffort、managed），不返回正文。使用本机状态数据库索引，避免每次列表查询扫描历史文件修复元数据。客户端连接时只取第一页，保留已缓存摘要，用户按需继续分页。查询不恢复执行。
+- `GET /v1/files?path=&cwd=`：下载当前 SSH 账号可读取的普通文件。绝对路径直接读取，相对路径按会话绝对 cwd 解析；流式返回原始字节、Content-Length 和 UTF-8 文件名，不恢复 Codex 会话。文件不存在、无读取权限或路径为目录时返回错误。Android 仅在用户点击文件引用并选择保存位置后请求，支持取消并清理未完成文件。
 - `GET /v1/models?cwd=`：返回此电脑 Codex 的完整分页模型目录 `data`（model、displayName、supportedReasoningEfforts、defaultReasoningEffort 等）和当前项目的 `defaults`。不返回其余电脑配置。
 - `POST /v1/sessions {cwd}`：创建受管理 Codex 会话，初始采用 workspace-write 沙箱和 on-request 审批，返回实际 `executionSettings`。
 - `POST /v1/sessions/:id/settings {model,effort,permissionMode}`：保存此会话下一轮的执行设置，返回 `{executionSettings}`。仅受管理且空闲的会话可修改；按电脑返回的模型目录检查思考强度。`permissionMode` 支持 `read-only`（read-only / never）、`on-request`（workspace-write / on-request）、`untrusted`（workspace-write / untrusted）、`never`（workspace-write / never，越权操作失败）、`full-access`（danger-full-access / never）。设置保存在服务数据库，第一条消息发送前也可修改。恢复会话及每轮执行均传给 Codex；不修改全局 config.toml。

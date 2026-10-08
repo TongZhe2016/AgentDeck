@@ -1,3 +1,4 @@
+import { downloadFile } from '../files/download.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Coordinator } from '../execution/coordinator.js';
 import { Codex } from '../providers/codex.js';
@@ -73,6 +74,9 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         url.searchParams.get('group') ?? 'unstaged', url.searchParams.get('commit') ?? undefined, Number(url.searchParams.get('parent') ?? 0))); return; }
       if (path === '/v1/git/graph') { json(res, await git.graph(text(cwd, '项目路径'), url.searchParams.get('scope') ?? 'head', url.searchParams.get('cursor') ?? undefined)); return; }
       if (path === '/v1/git/commit') { json(res, await git.commitDetail(text(cwd, '项目路径'), text(url.searchParams.get('oid'), '提交 ID'), Number(url.searchParams.get('parent') ?? 0))); return; }
+      if (path === '/v1/files' && req.method === 'GET') {
+        await downloadFile(text(url.searchParams.get('path'), '文件路径'), cwd, res); return;
+      }
       await codex.start();
       if (path === '/v1/models' && req.method === 'GET') { json(res, await executionOptions(codex, url.searchParams.get('cwd') ?? undefined)); return; }
       if (path === '/v1/search' && req.method === 'POST') {

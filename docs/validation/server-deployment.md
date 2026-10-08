@@ -60,3 +60,10 @@ vivo 的真实界面对话补测期间 USB 断开，因此该项由模拟器完�
 - EEZ075 一次 SSH 建连超时，重新连接后部署成功。手机暂未连接，本次未安装手机 APK；手机重新打开执行设置或点击「重试读取模型」可刷新目录。
 
 本次部署日志与辅助脚本保留在忽略的 `.local/service-update-20261008/`。各电脑备份保留在 `~/.local/share/agentdeck/backup-before-20261008-*/`。
+
+
+## 2026-10-08：文件下载接口
+
+MacBook、EEZ076、EEZ145、EEZ075、EEZ144、TZ4090 均已部署 `GET /v1/files?path=&cwd=`。更新前确认没有活动执行与待处理请求，保留旧程序备份，沿用现有 Codex 0.161.0、认证及服务配置。
+
+六台服务更新后的 health 均正常；每台创建隔离的 64 KiB 二进制文件，通过带认证的下载接口按相对路径下载，逐字节比对通过后删除测试文件。接口按 SSH 账号现有文件权限读取，流式返回，不需要启动或恢复 Codex 会话。部署日志及辅助脚本位于 `.local/markdown-download/`；旧程序保留在各主机 `~/.local/share/agentdeck/backup-markdown-download-*`。
