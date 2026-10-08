@@ -152,6 +152,7 @@ internal class WorkspaceFixtureService(
     val events = LinkedBlockingQueue<String>()
     var managed = initiallyManaged
     var refuseResume = false
+    var refuseSettings = false
     var externalWriter = false
     var refuseTakeover = false
     var runWriterConflict = false
@@ -204,8 +205,8 @@ internal class WorkspaceFixtureService(
             return
         }
         if (length > 0) writes += path to JSONObject(String(body))
-        if (path == "/v1/sessions/thread/resume" && refuseResume) {
-            val error = JSONObject().put("error", "此会话仍在运行").toString().toByteArray()
+        if ((path == "/v1/sessions/thread/resume" && refuseResume) || (path == "/v1/sessions/thread/settings" && refuseSettings)) {
+            val error = JSONObject().put("error", if (path.endsWith("/settings")) "设置暂时无法保存" else "此会话仍在运行").toString().toByteArray()
             output.write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: ${error.size}\r\nConnection: close\r\n\r\n".toByteArray())
             output.write(error); output.flush(); return
         }

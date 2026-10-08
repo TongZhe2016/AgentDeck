@@ -5,8 +5,10 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -60,8 +62,9 @@ private fun EffortSlider(efforts: List<String>, effort: String, enabled: Boolean
 
 @Composable
 fun ExecutionSettingsBar(vm: WorkspaceViewModel, enabled: Boolean) {
-    var open by remember { mutableStateOf(false) }
     val thread = vm.selected ?: return
+    var open by rememberSaveable(thread.string("id")) { mutableStateOf(false) }
+    var saveError by rememberSaveable(thread.string("id")) { mutableStateOf<String?>(null) }
     val current = thread.optJSONObject("executionSettings")
     val model = current?.string("model")?.ifBlank { null } ?: thread.string("model").ifBlank { "电脑默认模型" }
     val effort = current?.string("effort") ?: thread.string("reasoningEffort")
@@ -69,7 +72,7 @@ fun ExecutionSettingsBar(vm: WorkspaceViewModel, enabled: Boolean) {
     val permissionLabel = permissionLabels[permission] ?: permission
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("execution-settings-bar")
         .clickable(enabled = enabled, role = Role.Button, onClickLabel = "选择模型、思考强度与访问程度") {
-            open = true; vm.loadExecutionOptions()
+            saveError = null; open = true; vm.loadExecutionOptions()
         }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.6f)
@@ -82,29 +85,57 @@ fun ExecutionSettingsBar(vm: WorkspaceViewModel, enabled: Boolean) {
     }
     if (open) ExecutionSettingsSheet(vm.models, vm.optionsLoading, vm.optionsError,
         model, effort, permission, vm.busy, dismiss = { open = false }, retry = vm::loadExecutionOptions,
-        save = { chosenModel, chosenEffort, mode -> vm.saveExecutionSettings(chosenModel, chosenEffort, mode) { open = false } })
+        saveError = saveError, save = { chosenModel, chosenEffort, mode ->
+            saveError = null
+            vm.saveExecutionSettings(chosenModel, chosenEffort, mode, failed = { saveError = it }) { open = false }
+        })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: String?, currentModel: String,
                            currentEffort: String, currentPermission: String, saving: Boolean,
-                           dismiss: () -> Unit, retry: () -> Unit, save: (String, String, String) -> Unit) {
-    var model by remember { mutableStateOf(currentModel) }
-    var effort by remember { mutableStateOf(currentEffort) }
-    var permission by remember { mutableStateOf(currentPermission) }
+                           dismiss: () -> Unit, retry: () -> Unit, saveError: String? = null, save: (String, String, String) -> Unit) {
+    var model by rememberSaveable { mutableStateOf(currentModel) }
+    var effort by rememberSaveable { mutableStateOf(currentEffort) }
+    var permission by rememberSaveable { mutableStateOf(currentPermission) }
+    var edited by rememberSaveable { mutableStateOf(false) }
     val selected = models.firstOrNull { it.string("model") == model }
     val efforts = selected?.optJSONArray("supportedReasoningEfforts").objects().map { it.string("reasoningEffort") }
         .distinct().sortedBy { effortOrder.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
     LaunchedEffect(models, model) {
         if (selected != null && effort !in efforts) effort = selected.string("defaultReasoningEffort")
     }
-    ModalBottomSheet(onDismissRequest = { if (!saving) dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        LazyColumn(Modifier.fillMaxWidth().testTag("execution-settings-options"), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
+    val changed = edited && (model != currentModel || effort != currentEffort || permission != currentPermission)
+    val canEdit = !saving && !loading && error == null
+    val close: () -> Unit = {
+        if (!saving) {
+            if (!changed) dismiss()
+            else if (canEdit && selected != null && effort in efforts) {
+                save(model, effort, permission)
+            }
+        }
+    }
+    val latestClose = rememberUpdatedState(close)
+    val listState = rememberLazyListState()
+    LaunchedEffect(saveError) { if (saveError != null) listState.scrollToItem(0) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = {
+        if (it == SheetValue.Hidden) { latestClose.value(); false } else true
+    })
+    ModalBottomSheet(onDismissRequest = close, sheetState = sheetState) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("执行设置", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = close, enabled = !saving, modifier = Modifier.testTag("close-execution-settings")) { Text("关闭") }
+        }
+        Text(if (saving) "正在应用更改…" else "关闭时自动保存，下一轮生效",
+            Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (saving) LinearProgressIndicator(Modifier.fillMaxWidth())
+        LazyColumn(Modifier.fillMaxWidth().testTag("execution-settings-options"), state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
-                Text("执行设置", style = MaterialTheme.typography.headlineSmall)
-                Text("保存后用于下一轮执行", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (saveError != null) item {
+                Text(saveError, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = dismiss, enabled = !saving) { Text("放弃更改") }
             }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if (error != null) item {
@@ -113,7 +144,7 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
             }
             item { Text("模型", style = MaterialTheme.typography.titleMedium) }
             items(models, key = { it.string("id") }) { option ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = model == option.string("model"), enabled = !saving, role = Role.RadioButton) { model = option.string("model") },
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = model == option.string("model"), enabled = canEdit, role = Role.RadioButton) { model = option.string("model"); edited = true },
                     verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = model == option.string("model"), onClick = null)
                     Spacer(Modifier.width(12.dp))
@@ -121,7 +152,7 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                 }
             }
             item {
-                EffortSlider(efforts, effort, enabled = !saving && !loading && error == null) { effort = it }
+                EffortSlider(efforts, effort, enabled = canEdit) { effort = it; edited = true }
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -131,17 +162,17 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                 }
                 Slider(
                     value = permissionLevels.indexOf(permission).toFloat(),
-                    onValueChange = { permission = permissionLevels[it.roundToInt()] },
+                    onValueChange = { permission = permissionLevels[it.roundToInt()]; edited = true },
                     valueRange = 0f..permissionLevels.lastIndex.toFloat(),
                     steps = permissionLevels.size - 2,
-                    enabled = !saving,
+                    enabled = canEdit && selected != null,
                     colors = if (permission == "full-access") SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.error, activeTrackColor = MaterialTheme.colorScheme.error,
                         activeTickColor = MaterialTheme.colorScheme.onError,
                     ) else SliderDefaults.colors(),
                     track = { state ->
                         if (permission == "full-access") FullAccessTrack(state.steps)
-                        else SliderDefaults.Track(sliderState = state, enabled = !saving)
+                        else SliderDefaults.Track(sliderState = state, enabled = canEdit && selected != null)
                     },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("permission-slider").semantics {
                         contentDescription = "权限范围"
@@ -161,8 +192,6 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                     else -> "允许修改工作区，超出权限时请求批准。"
                 }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            item { Button(onClick = { save(model, effort, permission) }, enabled = !saving && !loading && error == null && selected != null && effort in efforts,
-                modifier = Modifier.fillMaxWidth()) { Text(if (saving) "正在保存…" else "保存设置") } }
         }
     }
 }

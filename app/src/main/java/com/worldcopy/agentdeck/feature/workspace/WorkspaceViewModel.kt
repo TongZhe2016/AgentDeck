@@ -204,14 +204,14 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val id = selected?.optString("id") ?: return
         writeCache("draft-$id", JSONObject().put("draft", draft).put("requestId", requestId).put("pendingText", pendingText).put("pendingAttachments", pendingAttachments?.let { JSONArray(it) }).put("attachments", JSONArray(attachments.map { JSONObject().put("id", it.id).put("path", it.path).put("mime", it.mime).put("uploaded", it.uploaded) })).toString())
     }
-    private fun work(onFailure: (String) -> Unit = {}, action: suspend () -> Unit) {
+    private fun work(onFailure: (String) -> Unit = { error = it }, action: suspend () -> Unit) {
         if (busy) return
         workJob = viewModelScope.launch {
             busy = true
             try { action() }
             catch (e: CancellationException) { throw e }
             catch (_: ActiveWriterException) { markExternalWriter() }
-            catch (e: Exception) { val message = e.message ?: "请求失败"; error = message; onFailure(message) }
+            catch (e: Exception) { onFailure(e.message ?: "请求失败") }
             finally { busy = false }
         }
     }
@@ -255,7 +255,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         if (hostId != id) { selected = null; messages = emptyList(); gitState = null; commits = emptyList() }
         hostId = id; runs = emptyList(); approvals = emptyList()
         api = HostApi(port, token)
-        work(onFailure = { projectSyncError = it }) {
+        work(onFailure = { projectSyncError = it; error = it }) {
             projectSyncError = null
             file("sessions").takeIf { it.exists() }?.let {
                 val cached = withContext(Dispatchers.IO) { JSONObject(it.readText()) }; sessions = cached.optJSONArray("data").objects(); projectSessions = sessions; snapshotTime = cached.optString("syncedAt"); projectCursor = cached.string("nextCursor").ifBlank { null }; catalogCursor = if (cached.has("catalogCursor")) cached.optLong("catalogCursor") else null
@@ -370,7 +370,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
-    fun refreshSessions(search: String = "", more: Boolean = false) = work(onFailure = { projectSyncError = it }) {
+    fun refreshSessions(search: String = "", more: Boolean = false) = work(onFailure = { projectSyncError = it; error = it }) {
         projectSyncError = null
         loadSessions(search, more)
     }
@@ -430,7 +430,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             finally { optionsLoading = false }
         }
     }
-    fun saveExecutionSettings(model: String, effort: String, permission: String, done: () -> Unit) = work {
+    fun saveExecutionSettings(model: String, effort: String, permission: String, failed: (String) -> Unit = { error = it }, done: () -> Unit) = work(onFailure = failed) {
         check(!hasUnconfirmedSubmission) { "请先确认上次消息送达" }
         val thread = selected ?: return@work
         resumeHistoryIfNeeded(thread)

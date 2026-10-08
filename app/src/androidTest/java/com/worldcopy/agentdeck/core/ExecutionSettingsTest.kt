@@ -78,19 +78,15 @@ class ExecutionSettingsTest {
                     bitmap.recycle()
                 }
             }
-            val previous = saved
-            compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
-            assertEquals(previous, saved)
-            compose.onNodeWithText("保存设置").performClick()
-            assertEquals(listOf("All levels", level, "on-request"), saved)
+            assertNull(saved)
         }
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("Single level"))
         compose.onNodeWithText("Single level").performClick()
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-slider"))
         compose.onNodeWithTag("effort-slider").assertIsNotEnabled()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "high"))
-        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
-        compose.onNodeWithText("保存设置").performClick()
+        compose.onNodeWithText("保存设置").assertDoesNotExist()
+        compose.onNodeWithTag("close-execution-settings").performClick()
         assertEquals(listOf("Single level", "high", "on-request"), saved)
     }
 
@@ -123,11 +119,8 @@ class ExecutionSettingsTest {
             if (mode == "full-access") compose.onNodeWithTag("full-access-track", useUnmergedTree = true).assertIsDisplayed()
             else compose.onNodeWithTag("full-access-track", useUnmergedTree = true).assertDoesNotExist()
             assertEquals(previouslySaved, saved)
-            compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
-            compose.onNodeWithText("保存设置").performClick()
-            assertEquals(listOf("astra", "max", mode), saved)
         }
-        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
+        compose.onNodeWithTag("close-execution-settings").assertIsDisplayed()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File) ?: instrumentation.targetContext.getExternalFilesDir(null)!!
         output.mkdirs()
@@ -135,7 +128,7 @@ class ExecutionSettingsTest {
             File(output, "execution-settings.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
         }
-        compose.onNodeWithText("保存设置").performClick()
+        compose.onNodeWithTag("close-execution-settings").performClick()
         assertEquals(listOf("astra", "max", "full-access"), saved)
     }
 }

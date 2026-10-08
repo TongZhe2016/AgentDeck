@@ -61,8 +61,8 @@ class ContinueHistoryTest {
         compose.onNodeWithTag("effort-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
         compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("permission-slider"))
         compose.onNodeWithTag("permission-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(4f) }
-        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("保存设置"))
-        compose.onNodeWithText("保存设置").performClick()
+        compose.onNodeWithText("保存设置").assertDoesNotExist()
+        compose.onNodeWithTag("close-execution-settings").performClick()
         compose.waitUntil(10_000) { !vm.busy && service.writes.size == 2 }
         assertEquals(listOf("/v1/sessions/thread/resume", "/v1/sessions/thread/settings"), service.writes.map { it.first })
         assertTrue(vm.selected!!.getBoolean("managed"))
@@ -82,6 +82,61 @@ class ContinueHistoryTest {
         assertEquals("/v1/runs", service.writes.last().first)
         assertEquals("thread", service.writes.last().second.getString("threadId"))
         assertEquals("", vm.draft)
+    }
+
+    @Test fun backAppliesChangesAndUnchangedCloseDoesNotWrite() = history { vm, service ->
+        compose.onNodeWithTag("execution-settings-bar").performClick()
+        compose.waitUntil(10_000) { !vm.optionsLoading && vm.models.isNotEmpty() }
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithText("执行设置").assertDoesNotExist()
+        assertTrue(service.writes.isEmpty())
+        compose.onNodeWithTag("execution-settings-bar").performClick()
+        compose.waitUntil(10_000) { !vm.optionsLoading }
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-slider"))
+        compose.onNodeWithTag("effort-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+        androidx.test.espresso.Espresso.pressBack()
+        compose.waitUntil(10_000) { !vm.busy && service.writes.size == 2 }
+        compose.onNodeWithText("执行设置").assertDoesNotExist()
+        assertEquals("low", service.settings.getString("effort"))
+        compose.onNodeWithTag("execution-settings-bar").performClick()
+        compose.waitUntil(10_000) { !vm.optionsLoading }
+        compose.onNodeWithTag("close-execution-settings").performClick()
+        compose.onNodeWithText("执行设置").assertDoesNotExist()
+        assertEquals(2, service.writes.size)
+    }
+
+    @Test fun swipeDismissKeepsChoicesOnSaveFailureAndRetriesOnClose() = history { vm, service ->
+        compose.onNodeWithTag("execution-settings-bar").performClick()
+        compose.waitUntil(10_000) { !vm.optionsLoading && vm.models.isNotEmpty() }
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-slider"))
+        compose.onNodeWithTag("effort-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+        service.refuseSettings = true
+        compose.onNodeWithText("执行设置").performTouchInput {
+            swipe(center, center + androidx.compose.ui.geometry.Offset(0f, 600f), durationMillis = 400)
+        }
+        compose.waitUntil(10_000) { !vm.busy && service.writes.size == 2 }
+        compose.onNodeWithText("设置暂时无法保存").assertIsDisplayed()
+        compose.onNodeWithText("执行设置").assertIsDisplayed()
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-value"))
+        compose.onNodeWithTag("effort-value").assertTextEquals("low")
+        assertEquals("high", vm.selected!!.getJSONObject("executionSettings").getString("effort"))
+        service.refuseSettings = false
+        compose.onNodeWithTag("close-execution-settings").performClick()
+        compose.waitUntil(10_000) { !vm.busy && service.settings.getString("effort") == "low" }
+        compose.onNodeWithText("执行设置").assertDoesNotExist()
+        assertEquals(1, service.writes.count { it.first.endsWith("/resume") })
+        assertEquals(2, service.writes.count { it.first.endsWith("/settings") })
+        service.refuseSettings = true
+        compose.onNodeWithTag("execution-settings-bar").performClick()
+        compose.waitUntil(10_000) { !vm.optionsLoading }
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasTestTag("effort-slider"))
+        compose.onNodeWithTag("effort-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(1f) }
+        compose.onNodeWithTag("close-execution-settings").performClick()
+        compose.waitUntil(10_000) { !vm.busy && service.writes.size == 4 }
+        compose.onNodeWithTag("execution-settings-options").performScrollToNode(hasText("放弃更改"))
+        compose.onNodeWithText("放弃更改").performClick()
+        compose.onNodeWithText("执行设置").assertDoesNotExist()
+        assertEquals("low", service.settings.getString("effort"))
     }
 
     @Test fun continueResumesOriginalThreadAndKeepsDraftIfOtherClientIsRunning() = history { vm, service ->
