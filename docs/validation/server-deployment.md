@@ -1,6 +1,6 @@
 # Mac 与 Ubuntu 服务部署
 
-日期：2026-10-01。
+首次部署：2026-10-01。最近更新：2026-10-08。
 
 ## 本机 Mac
 
@@ -37,3 +37,26 @@ vivo 的真实界面对话补测期间 USB 断开，因此该项由模拟器完�
 各主机程序位于 `~/.local/share/agentdeck/0.1.0/`，unit 位于 `~/.config/systemd/user/agentdeck.service`，数据位于 `~/.agentdeck/`。日志用 `journalctl --user -u agentdeck.service`；启动用 `systemctl --user start agentdeck.service`，停止用 `systemctl --user stop agentdeck.service`。
 
 原始日志、临时部署脚本与设备元数据留在忽略的 `.local/server-deployment/`。没有提交凭据或私钥。
+
+## 2026-10-08：六台服务同步更新
+
+手机的执行设置报“接口不存在”：六台运行的旧服务均未提供 `GET /v1/models`。本次将 MacBook、EEZ076、EEZ145、EEZ075、EEZ144、TZ4090 更新到仓库 `d16f46c` 对应的电脑服务构建，包含模型／思考强度目录、会话执行设置与会话摘要分页。应用版本仍为 0.1.0，协议版本仍为 1。
+
+按用户授权，将六台 AgentDeck 服务使用的 Codex 统一更新为本次 npm 查询的正式版本 0.161.0，安装在独立的 `~/.local/share/agentdeck/codex-0.161.0/`，并更新各服务的 `AGENTDECK_CODEX`。沿用各电脑已有的 Codex 认证与配置。
+
+| 主机 | 服务使用的 Codex | 模型目录条目 | 会话摘要首批 | 服务状态 |
+| --- | --- | --- | --- | --- |
+| MacBook | 0.161.0 | 8 | 40 | launchd 已启动，health 200 |
+| EEZ076 | 0.161.0 | 8 | 40 | active／enabled／Linger=yes |
+| EEZ145 | 0.161.0 | 8 | 21 | active／enabled／Linger=yes |
+| EEZ075 | 0.161.0 | 8 | 40 | active／enabled／Linger=yes |
+| EEZ144 | 0.161.0 | 8 | 10 | active／enabled／Linger=yes |
+| TZ4090 | 0.161.0 | 11 | 18 | active／enabled／Linger=yes |
+
+- 部署前电脑服务构建与 10 项行为测试通过。逐台停止前确认没有运行中任务或待处理批准，备份旧程序、服务配置与 SQLite 数据库；更新后检查 health、模型目录、会话摘要与执行设置路由。
+- 六台模型目录均包含 `gpt-6.1-sol`、`gpt-6-astra` 及各自的思考强度。目录以每台电脑的实际配置和返回结果为准。
+- 执行设置路由使用不存在的测试会话 ID 调用，均返回预期的 400「请先恢复此历史会话」，确认路由已注册并进入会话校验。这项部署检查没有修改真实会话设置，也没有发起真实模型推理。
+- TZ4090 原有 Codex 0.160.0 的 `model/list` 返回空目录，包含隐藏模型也为空；首次更新验证未通过后恢复了旧服务。单独验证 0.161.0 返回完整目录后，再切换服务并完成更新。EEZ144 原有 0.157.1 未列出 6.1 Sol，更新后已列出。
+- EEZ075 一次 SSH 建连超时，重新连接后部署成功。手机暂未连接，本次未安装手机 APK；手机重新打开执行设置或点击「重试读取模型」可刷新目录。
+
+本次部署日志与辅助脚本保留在忽略的 `.local/service-update-20261008/`。各电脑备份保留在 `~/.local/share/agentdeck/backup-before-20261008-*/`。
