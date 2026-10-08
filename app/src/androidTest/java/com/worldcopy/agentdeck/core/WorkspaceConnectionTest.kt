@@ -2,7 +2,6 @@ package com.worldcopy.agentdeck.core
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
-import androidx.test.platform.app.InstrumentationRegistry
 import com.worldcopy.agentdeck.AgentDeckApplication
 import com.worldcopy.agentdeck.MainActivity
 import com.worldcopy.agentdeck.core.model.Host
@@ -26,6 +25,90 @@ import kotlin.concurrent.thread
 
 class WorkspaceConnectionTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test fun multipleHostsKeepReceivingWhileAppIsInBackground() {
+        val app = compose.activity.application as AgentDeckApplication
+        val preferences = app.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE)
+        val originalPreferences = preferences.all
+        preferences.edit().putBoolean("notificationAsked", true).putBoolean("batteryOptimizationAsked", true).commit()
+        val hosts = List(2) { Host(name = "Background fixture $it", address = "127.0.0.1", port = 1,
+            username = "fixture", authMethod = AuthMethod.PASSWORD) }
+        val services = List(2) { WorkspaceFixtureService() }
+        val workspaces = hosts.map { app.workspace(it.id) }
+        try {
+            hosts.forEachIndexed { index, host ->
+                compose.waitUntil(10_000) { !app.hosts.busy }
+                compose.runOnUiThread { app.hosts.save(host, null) {} }
+                compose.waitUntil(10_000) { !app.hosts.busy && !workspaces[index].busy }
+                compose.runOnUiThread {
+                    workspaces[index].connect(host.id, services[index].port, "fixture") { HostApi(services[index].port, "fixture") }
+                }
+                compose.waitUntil(10_000) { workspaces[index].online && !workspaces[index].busy }
+            }
+            compose.waitUntil(10_000) { ConnectionService.active }
+            compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            services.forEachIndexed { index, service ->
+                service.events.offer(JSONObject().put("seq", 1).put("type", "sessions.changed").put("data", JSONObject()
+                    .put("upserted", JSONArray(listOf(JSONObject().put("id", "background-$index")
+                        .put("name", "Background $index").put("cwd", "/fixture").put("updatedAt", 100))))
+                    .put("removed", JSONArray())).toString())
+            }
+            compose.waitUntil(10_000) {
+                workspaces.withIndex().all { (index, workspace) -> workspace.projectSessions.any { it.optString("id") == "background-$index" } }
+            }
+            assertTrue(ConnectionService.active)
+            compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+            compose.waitUntil(10_000) { !app.hosts.busy }
+            workspaces.forEach { assertTrue(it.online) }
+            services.forEach { assertEquals(1, it.streams.get()); assertEquals(1, it.lists.get()) }
+        } finally {
+            compose.runOnUiThread { workspaces.forEach { it.disconnect() } }
+            hosts.forEach { host ->
+                compose.waitUntil(10_000) { !app.hosts.busy }
+                compose.runOnUiThread { app.hosts.deleteHost(host.id) }
+                compose.waitUntil(10_000) { !app.hosts.busy }
+                File(app.noBackupFilesDir, "workspace").listFiles()?.filter { it.name.startsWith(host.id) }?.forEach { it.delete() }
+            }
+            services.forEach { it.close() }
+            preferences.edit().apply {
+                listOf("notificationAsked", "batteryOptimizationAsked").forEach { key ->
+                    val original = originalPreferences[key] as? Boolean
+                    if (original == null) remove(key) else putBoolean(key, original)
+                }
+            }.commit()
+        }
+    }
+
+    @Test fun removingTaskStopsConnectionsEvenDuringHostSync() {
+        val app = compose.activity.application as AgentDeckApplication
+        val host = Host(name = "Task removal fixture", address = "127.0.0.1", port = 1, username = "fixture", authMethod = AuthMethod.PASSWORD)
+        val preferences = app.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE)
+        val notificationAsked = preferences.getBoolean("notificationAsked", false)
+        val batteryAsked = preferences.getBoolean("batteryOptimizationAsked", false)
+        preferences.edit().putBoolean("notificationAsked", true).putBoolean("batteryOptimizationAsked", true).commit()
+        val workspace = app.workspace(host.id)
+        WorkspaceFixtureService().use { service ->
+            try {
+                compose.waitUntil(10_000) { !app.hosts.busy }
+                compose.runOnUiThread { app.hosts.save(host, null) {} }
+                compose.waitUntil(10_000) { !app.hosts.busy && !workspace.busy && ConnectionService.active }
+                compose.runOnUiThread { workspace.connect(host.id, service.port, "fixture") { HostApi(service.port, "fixture") } }
+                compose.waitUntil(10_000) { workspace.online && !workspace.busy }
+                compose.runOnUiThread { app.hosts.work { kotlinx.coroutines.awaitCancellation() } }
+                compose.waitUntil(10_000) { app.hosts.busy }
+                compose.runOnUiThread { compose.activity.finishAndRemoveTask() }
+                compose.waitUntil(10_000) { !ConnectionService.active && !app.hosts.busy && !workspace.maintainsConnection }
+                assertFalse(workspace.online)
+            } finally {
+                compose.runOnUiThread { app.disconnectAll() }
+                compose.waitUntil(10_000) { !app.hosts.busy }
+                compose.runOnUiThread { app.hosts.deleteHost(host.id) }
+                compose.waitUntil(10_000) { !app.hosts.busy }
+                preferences.edit().putBoolean("notificationAsked", notificationAsked).putBoolean("batteryOptimizationAsked", batteryAsked).commit()
+                File(app.noBackupFilesDir, "workspace").listFiles()?.filter { it.name.startsWith(host.id) }?.forEach { it.delete() }
+            }
+        }
+    }
 
     @Test fun catalogEventsUpdateProjectsAndReplayOfflineChangesWithoutReloadingHistory() {
         val app = compose.activity.application as AgentDeckApplication
@@ -82,17 +165,19 @@ class WorkspaceConnectionTest {
 
     @Test fun foregroundReusesStreamAndConversationAndPagesOnlyOnDemand() {
         val app = compose.activity.application as AgentDeckApplication
-        if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(app.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
         val host = Host(name = "Connection fixture", address = "127.0.0.1", port = 1, username = "fixture", authMethod = AuthMethod.PASSWORD)
         val workspace = app.workspace(host.id)
-        val originalKeepConnected = app.keepConnected
+        val preferences = app.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE)
+        val originalPreferences = preferences.all
+        // Upgraded installations may still contain the old disabled setting.
+        preferences.edit().putBoolean("keepConnected", false).putBoolean("notificationAsked", true)
+            .putBoolean("batteryOptimizationAsked", true).commit()
         WorkspaceFixtureService().use { service ->
             try {
                 compose.waitUntil(10_000) { !app.hosts.busy }
                 compose.runOnUiThread { app.hosts.save(host, null) {} }
                 compose.waitUntil(10_000) { !app.hosts.busy && !workspace.busy && app.hosts.hosts.any { it.id == host.id } }
                 compose.runOnUiThread {
-                    app.updateKeepConnected(true)
                     workspace.connect(host.id, service.port, "fixture") { HostApi(service.port, "fixture") }
                 }
                 compose.waitUntil(10_000) { workspace.online && !workspace.busy && service.streams.get() == 1 && ConnectionService.active }
@@ -113,11 +198,27 @@ class WorkspaceConnectionTest {
                     .put("method", "item/completed").put("params", JSONObject().put("threadId", "thread").put("turnId", "turn")
                         .put("item", JSONObject().put("id", "background").put("type", "agentMessage").put("text", "后台收到回复")))).toString())
                 compose.waitUntil(10_000) { workspace.messages.any { it.text == "后台收到回复" } }
+                assertTrue(ConnectionService.active)
                 compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
                 compose.waitUntil(10_000) { !app.hosts.busy && !workspace.busy }
                 assertEquals(1, service.streams.get())
                 assertEquals(1, service.lists.get())
                 assertEquals(1, service.histories.get())
+                assertEquals("thread", workspace.selected!!.getString("id"))
+                assertEquals("保留的草稿", workspace.draft)
+                compose.activityRule.scenario.recreate()
+                compose.waitUntil(10_000) { !app.hosts.busy && !workspace.busy }
+                assertSame(workspace, app.workspace(host.id))
+                assertEquals(1, service.streams.get())
+                assertEquals("保留的草稿", workspace.draft)
+                compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+                service.dropEventConnections()
+                compose.waitUntil(10_000) { service.streams.get() == 2 && workspace.online }
+                compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+                compose.waitUntil(10_000) { !app.hosts.busy && !workspace.busy }
+                assertTrue(ConnectionService.active)
+                assertEquals(2, service.streams.get())
+                assertEquals(1, service.lists.get())
                 assertEquals("thread", workspace.selected!!.getString("id"))
                 assertEquals("保留的草稿", workspace.draft)
                 compose.runOnUiThread { workspace.loadMoreProjects() }
@@ -126,8 +227,14 @@ class WorkspaceConnectionTest {
                 assertEquals(2, workspace.projectSessions.size)
                 assertEquals(1, service.histories.get())
             } finally {
-                compose.runOnUiThread { workspace.disconnect(); app.updateKeepConnected(originalKeepConnected) }
+                compose.runOnUiThread { workspace.disconnect() }
                 compose.waitUntil(10_000) { !app.hosts.busy }
+                preferences.edit().apply {
+                    listOf("keepConnected", "notificationAsked", "batteryOptimizationAsked").forEach { key ->
+                        val original = originalPreferences[key] as? Boolean
+                        if (original == null) remove(key) else putBoolean(key, original)
+                    }
+                }.commit()
                 compose.runOnUiThread { app.hosts.deleteHost(host.id) }
                 compose.waitUntil(10_000) { !app.hosts.busy }
                 File(app.noBackupFilesDir, "workspace").listFiles()?.filter { it.name.startsWith(host.id) }?.forEach { it.delete() }

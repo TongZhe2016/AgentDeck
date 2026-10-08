@@ -1,9 +1,13 @@
 package com.worldcopy.agentdeck
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,12 +22,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.worldcopy.agentdeck.ui.components.*
 import com.worldcopy.agentdeck.ui.theme.DeckNavy
 import androidx.compose.ui.platform.LocalContext
-import com.worldcopy.agentdeck.core.notifications.ConnectionService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.awaitCancellation
 import com.worldcopy.agentdeck.feature.hosts.KeysScreen
 import com.worldcopy.agentdeck.feature.hosts.HostIdentityDialog
 import com.worldcopy.agentdeck.feature.projects.ProjectsScreen
@@ -85,20 +90,48 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     var projectScope by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
+    var showBackgroundSettings by rememberSaveable { mutableStateOf(false) }
+    val connectionPreferences = remember { context.getSharedPreferences("connection", Context.MODE_PRIVATE) }
+    val powerManager = remember { context.getSystemService(PowerManager::class.java) }
+    fun offerBatterySetup() {
+        if (!powerManager.isIgnoringBatteryOptimizations(context.packageName) &&
+            !connectionPreferences.getBoolean("batteryOptimizationAsked", false)) {
+            connectionPreferences.edit().putBoolean("batteryOptimizationAsked", true).apply()
+            showBackgroundSettings = true
+        }
+    }
     val pendingCount = app.workspaces.values.sumOf { it.approvals.size }
     BackHandler(enabled = workspaceId == null && tab != 0) { tab = 0 }
     fun navigate(index: Int) { tab = index; workspaceId = null }
-    fun startBackground() { app.updateKeepConnected(true) }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (app.keepConnected) app.ensureConnectionService() }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { offerBatterySetup() }
+    val batteryPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
+    LaunchedEffect(vm.hosts.isNotEmpty()) {
+        if (vm.hosts.isNotEmpty()) (context as ComponentActivity).lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            if (Build.VERSION.SDK_INT >= 33 && !connectionPreferences.getBoolean("notificationAsked", false)) {
+                connectionPreferences.edit().putBoolean("notificationAsked", true).apply()
+                permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else offerBatterySetup()
+            awaitCancellation()
+        }
+    }
+    if (showBackgroundSettings) {
+        val unrestricted = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        AlertDialog(onDismissRequest = { showBackgroundSettings = false },
+            title = { Text("后台持续连接") },
+            text = { Text(if (unrestricted)
+                "已允许锁屏后保持电脑连接。部分手机还需在应用系统设置中允许后台运行。常驻连接会增加耗电；从最近任务划掉应用即可停止。"
+                else "AgentDeck 会自动在后台接收电脑回复和审批。请一次性允许忽略电池优化，以便锁屏后继续连接。常驻连接会增加耗电；从最近任务划掉应用即可停止。") },
+            confirmButton = { TextButton(onClick = {
+                showBackgroundSettings = false
+                val action = if (unrestricted) Settings.ACTION_APPLICATION_DETAILS_SETTINGS else Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                batteryPermission.launch(Intent(action, Uri.parse("package:${context.packageName}")))
+            }) { Text(if (unrestricted) "应用系统设置" else "允许后台运行") } },
+            dismissButton = { TextButton(onClick = { showBackgroundSettings = false }) { Text(if (unrestricted) "关闭" else "稍后") } })
+    }
     LaunchedEffect(vm.message) { vm.message?.let { snackbar.showSnackbar(it); vm.dismissMessage() } }
     LaunchedEffect(vm.hosts.map { it.id }) {
         if ((context as? ComponentActivity)?.lifecycle?.currentState?.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) == true) {
             app.ensureConnectionService()
-            val preferences = context.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE)
-            if (app.keepConnected && vm.hosts.isNotEmpty() && Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("notificationAsked", false)) {
-                preferences.edit().putBoolean("notificationAsked", true).apply()
-                permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
         }
         vm.hosts.forEach { host ->
             val workspace = app.workspace(host.id)
@@ -117,8 +150,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
         workspace.openSession(JSONObject().put("id", thread))
         consumeTarget()
     } }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val showConnectionLabel = maxWidth >= 440.dp && LocalDensity.current.fontScale <= 1.3f
+    Box(Modifier.fillMaxSize()) {
         Scaffold(topBar = {
             if (workspaceId == null) TopAppBar(title = {
                 if (tab != 0) Text(if (tab == 1) "密钥" else "待处理")
@@ -136,20 +168,13 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
             }, navigationIcon = {
                 if (tab != 0) IconButton(onClick = { navigate(0) }) { DeckGlyph(DeckIcon.Back, "返回项目") }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface), actions = {
-                TextButton(onClick = {
-                    if (app.keepConnected) app.updateKeepConnected(false)
-                    else { startBackground(); if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
-                }) {
-                    val label = if (app.keepConnected) "保持连接" else "后台连接已关"
-                    DeckGlyph(if (ConnectionService.active) DeckIcon.Check else DeckIcon.Sync,
-                        description = if (showConnectionLabel && tab == 0) null else label, modifier = Modifier.size(20.dp))
-                    if (showConnectionLabel && tab == 0) { Spacer(Modifier.width(6.dp)); Text(label) }
-                }
                 Box {
                     IconButton(onClick = { menu = true }) { DeckGlyph(DeckIcon.More, "更多设置") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("密钥") }, leadingIcon = { DeckGlyph(DeckIcon.Key) },
                             onClick = { navigate(1); menu = false })
+                        DropdownMenuItem(text = { Text("后台运行设置") },
+                            onClick = { showBackgroundSettings = true; menu = false })
                         if (Build.VERSION.SDK_INT >= 31) DropdownMenuItem(
                             text = { Text(if (dynamicColor) "使用掌舵配色" else "使用系统壁纸配色") },
                             onClick = { changeDynamicColor(!dynamicColor); menu = false })

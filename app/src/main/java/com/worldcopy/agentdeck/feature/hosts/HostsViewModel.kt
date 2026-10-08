@@ -15,6 +15,7 @@ import com.worldcopy.agentdeck.core.ssh.SshKeyType
 import com.worldcopy.agentdeck.core.storage.HostStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -36,6 +37,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     private val connections = ConcurrentHashMap<String, SshConnection>()
     private val ports = ConcurrentHashMap<String, Int>()
     private val syncSlots = Semaphore(10)
+    private var workJob: Job? = null
 
     private fun refresh() { hosts = store.hosts(); identities = store.identities() }
     fun dismissMessage() { message = null }
@@ -46,7 +48,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun work(action: suspend () -> Unit) {
         if (busy) return
-        viewModelScope.launch {
+        workJob = viewModelScope.launch {
             busy = true
             try { action(); refresh() }
             catch (e: CancellationException) { throw e }
@@ -221,9 +223,18 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         finally { connectingHosts = connectingHosts - id }
     }
 
-    fun disconnectAll() = work {
-        withContext(Dispatchers.IO) { connections.keys.toList().forEach { closeConnection(it) } }
-        statuses = emptyMap()
+    fun disconnectAll() {
+        val previous = workJob
+        previous?.cancel()
+        workJob = viewModelScope.launch {
+            // A task dismissal must also stop an in-flight host sync before closing its tunnels.
+            previous?.join()
+            busy = true
+            try {
+                withContext(Dispatchers.IO) { connections.keys.toList().forEach { closeConnection(it) } }
+                statuses = emptyMap()
+            } finally { busy = false }
+        }
     }
 
     private fun stopWorkspace(id: String) {
