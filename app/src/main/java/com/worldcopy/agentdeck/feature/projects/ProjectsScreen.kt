@@ -216,7 +216,7 @@ fun ProjectList(groups: List<ProjectGroup>, hosts: List<Host>,
                             Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 DeckGlyph(DeckIcon.Chat, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } },
-                                    Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                                    Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }

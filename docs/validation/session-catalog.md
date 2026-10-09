@@ -15,3 +15,11 @@
 MacBook、EEZ076、EEZ145、EEZ075、EEZ144、TZ4090 已更新常驻服务。部署前确认没有活动执行和待处理请求，保留原代码备份；配置、认证及 Codex 0.161.0 沿用现有安装。后台初始化后的完整目录数量分别为 128、1084、22、98、10、18，六台的目录状态均 ready、error=null，手机接口最多返回首批 40 条。
 
 USB 真机本次已断开，ADB 仅列出模拟器，新版 APK 尚未安装到真机。
+
+## 会话标题显示（2026-10-10）
+
+首页对话行、工作台会话列表和对话页标题统一限制为一行，超出宽度显示省略号。继续优先显示会话名称，没有名称时使用首条消息预览；本次未增加模型自动概括标题。
+
+目录变更现在同步更新当前打开会话的 `name` 与 `preview`，避免从 App 发送首条消息后标题仍停留在空白会话的占位文字。其余会话状态沿用当前值。
+
+`assembleDebug` 和 `WorkspaceConnectionTest#catalogEventsUpdateProjectsAndReplayOfflineChangesWithoutReloadingHistory` 在 API 36 模拟器 `emulator-5554` 通过。回归覆盖名称为空时收到首条消息预览、后续改名、保留执行设置／受管理状态／草稿／正文，以及原有离线目录补齐。单行省略沿用现有 Compose `maxLines = 1` 与 `TextOverflow.Ellipsis`；本次未做真机视觉验收或真机安装。

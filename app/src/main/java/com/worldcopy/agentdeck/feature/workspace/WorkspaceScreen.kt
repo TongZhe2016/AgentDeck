@@ -109,7 +109,7 @@ private fun SessionList(vm: WorkspaceViewModel, projectScope: String?) {
         items(if (vm.searchResults == null) vm.sessions.filter { projectScope == null || it.string("cwd").trimEnd('/') == projectScope.trimEnd('/') } else emptyList(), key = { it.getString("id") }) { session ->
             OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { vm.openSession(session) }) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                    Text(session.string("name").ifBlank { session.string("preview").ifBlank { "新会话" } }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     Text(session.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     StatusLabel(if (session.optBoolean("managed")) "受管理会话" else "已有会话 · 可继续", positive = session.optBoolean("managed"))
                 }
@@ -185,7 +185,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                 if (vm.hasMoreHistory) item { TextButton(onClick = vm::olderHistory, enabled = !vm.busy) { Text("加载更早的消息") } }
                 item(key = "thread-header") {
                     Column {
-                        Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, style = MaterialTheme.typography.titleLarge)
+                        Text(thread.string("name").ifBlank { thread.string("preview").ifBlank { "Codex" } }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
                         Text(thread.string("cwd"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

@@ -417,6 +417,11 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private fun applyCatalogChanges(change: JSONObject) {
         val upserted = change.optJSONArray("upserted").objects()
+        selected?.let { current ->
+            upserted.firstOrNull { it.string("id") == current.string("id") }?.let { summary ->
+                selected = JSONObject(current.toString()).put("name", summary.opt("name")).put("preview", summary.opt("preview"))
+            }
+        }
         val removed = change.optJSONArray("removed")?.let { array -> (0 until array.length()).map { array.getString(it) }.toSet() } ?: emptySet()
         projectSessions = mergeSessionPage(projectSessions.filterNot { it.string("id") in removed }, upserted, false)
             .sortedWith(compareByDescending<JSONObject> { it.optLong("updatedAt") }.thenByDescending { it.string("id") })

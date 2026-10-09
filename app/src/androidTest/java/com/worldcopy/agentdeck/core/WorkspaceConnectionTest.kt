@@ -134,17 +134,26 @@ class WorkspaceConnectionTest {
                 compose.runOnUiThread { workspace.openSession(item("thread", "Original", 100)) }
                 compose.waitUntil(10_000) { !workspace.busy && workspace.messages.isNotEmpty() }
                 compose.runOnUiThread { workspace.updateDraft("Keep this draft") }
-                fun event(seq: Long, upserted: JSONObject, removed: List<String> = emptyList()) {
+                val settings = workspace.selected!!.optJSONObject("executionSettings")?.toString()
+                val managed = workspace.selected!!.optBoolean("managed")
+                fun event(seq: Long, upserted: JSONObject, removed: List<String> = emptyList(), current: JSONObject? = null) {
                     service.events.offer(JSONObject().put("seq", seq).put("type", "sessions.changed").put("data", JSONObject()
-                        .put("upserted", JSONArray(listOf(upserted))).put("removed", JSONArray(removed))).toString())
+                        .put("upserted", JSONArray(listOfNotNull(upserted, current))).put("removed", JSONArray(removed))).toString())
                 }
-                event(1, item("external", "New desktop conversation", 101))
+                event(1, item("external", "New desktop conversation", 101), current = item("thread", "", 100)
+                    .put("name", JSONObject.NULL).put("preview", "First message from the app"))
                 compose.waitUntil(10_000) { workspace.projectSessions.any { it.optString("id") == "external" } }
-                event(2, item("external", "Renamed desktop conversation", 102), listOf("older"))
+                assertEquals("First message from the app", workspace.selected!!.getString("preview"))
+                assertTrue(workspace.selected!!.isNull("name"))
+                event(2, item("external", "Renamed desktop conversation", 102), listOf("older"),
+                    current = item("thread", "New conversation title", 100).put("preview", "First message from the app"))
                 compose.waitUntil(10_000) { workspace.projectSessions.first().optString("name") == "Renamed desktop conversation" && workspace.projectSessions.size == 2 }
                 assertEquals(1, service.lists.get())
                 assertEquals(1, service.histories.get())
                 assertEquals("thread", workspace.selected!!.getString("id"))
+                assertEquals("New conversation title", workspace.selected!!.getString("name"))
+                assertEquals(settings, workspace.selected!!.optJSONObject("executionSettings")?.toString())
+                assertEquals(managed, workspace.selected!!.optBoolean("managed"))
                 assertEquals("Keep this draft", workspace.draft)
                 assertEquals("初始回复", workspace.messages.single().text)
                 val cache = File(app.noBackupFilesDir, "workspace/$hostId-sessions.json")
