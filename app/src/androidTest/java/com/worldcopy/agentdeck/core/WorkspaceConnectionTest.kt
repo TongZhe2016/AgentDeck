@@ -8,6 +8,7 @@ import com.worldcopy.agentdeck.core.model.Host
 import com.worldcopy.agentdeck.core.model.AuthMethod
 import com.worldcopy.agentdeck.core.network.HostApi
 import com.worldcopy.agentdeck.core.notifications.ConnectionService
+import com.worldcopy.agentdeck.feature.workspace.objects
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -267,6 +268,12 @@ internal class WorkspaceFixtureService(
     var historyTurns: JSONArray? = null
     var forkedTurns: JSONArray? = null
     var refuseFork = false
+    val modelReads = AtomicInteger()
+    var modelCatalog = JSONArray(listOf(
+        JSONObject().put("id", "sol").put("model", "gpt-6.1-sol").put("displayName", "GPT-6.1 Sol")
+            .put("defaultReasoningEffort", "high").put("supportedReasoningEfforts", JSONArray(listOf("low", "high").map {
+                JSONObject().put("reasoningEffort", it)
+            }))))
     val streams = AtomicInteger()
     var requestedFile: android.net.Uri? = null
     val fileBytes = ByteArray(1024 * 1024) { (it % 251).toByte() }
@@ -339,11 +346,10 @@ internal class WorkspaceFixtureService(
         val response = when {
             path == "/v1/health" -> JSONObject().put("protocol", 1)
             path == "/v1/snapshot" -> JSONObject().put("runs", JSONArray()).put("approvals", JSONArray()).put("cursor", 0)
-            path.startsWith("/v1/models") -> JSONObject().put("data", JSONArray(listOf(
-                JSONObject().put("id", "sol").put("model", "gpt-6.1-sol").put("displayName", "GPT-6.1 Sol")
-                    .put("defaultReasoningEffort", "high").put("supportedReasoningEfforts", JSONArray(listOf("low", "high").map {
-                        JSONObject().put("reasoningEffort", it)
-                    })))))
+            path.startsWith("/v1/models") -> {
+                modelReads.incrementAndGet()
+                JSONObject().put("data", modelCatalog)
+            }
             path == "/v1/sessions/thread/takeover" -> {
                 if (refuseTakeover) JSONObject().put("acquired", false).put("message", "有其他用户正在使用").put("writerState", "external")
                 else {
@@ -363,6 +369,9 @@ internal class WorkspaceFixtureService(
             path == "/v1/sessions/thread/settings" -> {
                 check(managed)
                 settings = JSONObject(String(body))
+                modelCatalog.objects().firstOrNull { it.optString("model") == settings.optString("model") }?.let { model ->
+                    if (model.optJSONArray("supportedReasoningEfforts")?.length() == 0) settings.put("effort", model.get("defaultReasoningEffort"))
+                }
                 JSONObject().put("executionSettings", settings)
             }
             path == "/v1/sessions/thread/resume" -> {

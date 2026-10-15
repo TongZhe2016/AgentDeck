@@ -62,6 +62,22 @@ systemctl --user status agentdeck.service
 
 手机录音经 SSH 上传，在电脑 CPU 上转写；运行时不下载模型，也不把音频交给模型 API。转写最长等待 120 秒；失败可重试，成功文字进入手机草稿。准确率取决于语言、声音和模型，发送前可以编辑。临时录音转写后删除，已发送图片保留供原生会话恢复。
 
+## 自定义模型 Catalog
+
+手机的模型选择器读取本服务启动的 Codex `model/list` 完整分页结果，包括默认选择器隐藏的模型。模型 ID、显示名和思考档位均由该 Codex 返回，支持 DeepSeek 等自定义名称；选择后沿用宿主机当前 provider 和认证。多个供应商共用一个 Catalog 时，需要宿主机 provider 或网关已配置相应模型路由。
+
+自定义本地目录需要在服务所用 `CODEX_HOME` 的 `config.toml` 中启用，例如将以下设置写在第一个 TOML 表之前：
+
+```toml
+model_catalog_json = "/absolute/path/to/models.json"
+```
+
+文件应为匹配宿主机 Codex 版本的原生 Catalog（顶层 `models` 数组及完整模型元数据）。仅把 `models.json` 放进目录不会启用它。Provider、接口地址和认证继续由电脑端 Codex 配置；手机不保存模型 API key。
+
+本地 Catalog 在 Codex 启动时加载。修改文件或配置后，等待执行结束，再重启 AgentDeck 电脑服务以重启其 Codex 子进程，然后在手机设置中点“刷新模型”。手机刷新会重新查询当前 Codex 目录；重新连接 SSH 本身不会重启电脑服务。
+
+来源：[Codex 自定义模型目录](https://learn.chatgpt.com/docs/enterprise/roll-out-a-gateway#use-a-model-catalog-for-custom-names)、[原生模型发现接口](https://learn.chatgpt.com/docs/app-server#list-models-modellist)。
+
 ## 日常使用边界
 
 电脑服务管理的会话允许手机观察和控制；其他终端的历史可在用户操作后恢复。读取历史同时检查当前 app-server 已加载会话及 Codex 写入锁文件；锁文件仅作为占用提示，实际接管由原生 `thread/resume` 决定。已释放的写入权可以接管，仍存活的其他写入者则返回占用提示；Codex 0.161.0 未提供强制抢占接口。`thread/fork` 可在原会话被占用时复制已存历史到独立会话。本版没有终端重新附着入口。正文搜索每次最多扫描十页原生历史，继续搜索使用游标，读取失败会显示错误。

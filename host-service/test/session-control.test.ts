@@ -19,6 +19,7 @@ class WriterCodex extends Codex {
     if (method === 'thread/loaded/list') return { data: this.loaded, nextCursor: null };
     if (method === 'thread/read') return { thread: { id: params.threadId, cwd: '/fixture', status: { type: 'notLoaded' } } };
     if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+    if (method === 'model/list') return { data: [{ model: 'gpt-6.1-sol', supportedReasoningEfforts: [{ reasoningEffort: 'high' }], defaultReasoningEffort: 'high' }], nextCursor: null };
     if (method === 'thread/resume') {
       if (this.failure) throw new RpcError(this.failure);
       if (this.blocked) throw new RpcError(`thread ${params.threadId} already has an active writer`);

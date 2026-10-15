@@ -7,11 +7,17 @@ async function listModels(codex: Codex) {
   const models: any[] = [];
   let cursor: string | null = null;
   do {
-    const page = await codex.request('model/list', { limit: 100, cursor });
+    const page = await codex.request('model/list', { limit: 100, cursor, includeHidden: true });
     models.push(...page.data);
     cursor = page.nextCursor ?? null;
   } while (cursor);
   return models;
+}
+
+function modelEffort(model: any, requested?: string | null): string | null {
+  // Null in turn/start inherits the previous model's effort; use the host default for fixed-effort models.
+  if (model?.supportedReasoningEfforts.length === 0) return model.defaultReasoningEffort;
+  return requested ?? model?.defaultReasoningEffort ?? null;
 }
 
 export async function executionOptions(codex: Codex, cwd?: string) {
@@ -21,7 +27,7 @@ export async function executionOptions(codex: Codex, cwd?: string) {
   return {
     data: models.map(m => ({ id: m.id, model: m.model, displayName: m.displayName, description: m.description,
       supportedReasoningEfforts: m.supportedReasoningEfforts, defaultReasoningEffort: m.defaultReasoningEffort, isDefault: m.isDefault })),
-    defaults: { model, effort: config.model_reasoning_effort ?? models.find(m => m.model === model)?.defaultReasoningEffort ?? null, permissionMode: 'on-request' },
+    defaults: { model, effort: modelEffort(models.find(m => m.model === model), config.model_reasoning_effort), permissionMode: 'on-request' },
   };
 }
 
@@ -30,8 +36,8 @@ export async function validateSettings(codex: Codex, value: any): Promise<Execut
   const models = await listModels(codex);
   const model = models.find(m => m.model === value.model);
   if (!model) throw new Error('此电脑的 Codex 未提供所选模型，请刷新模型列表');
-  const effort = value.effort ?? model.defaultReasoningEffort;
-  if (!model.supportedReasoningEfforts.some((entry: any) => entry.reasoningEffort === effort)) throw new Error('所选模型不支持此思考强度');
+  const effort = modelEffort(model, value.effort);
+  if (model.supportedReasoningEfforts.length && !model.supportedReasoningEfforts.some((entry: any) => entry.reasoningEffort === effort)) throw new Error('所选模型不支持此思考强度');
   return { model: value.model, effort, permissionMode: value.permissionMode };
 }
 
@@ -55,8 +61,8 @@ export function turnSettings(settings?: ExecutionSettings) {
 
 export async function effectiveSettings(codex: Codex, result: any): Promise<ExecutionSettings> {
   const sandbox = result.sandbox?.type;
-  const effort = result.reasoningEffort ?? (await executionOptions(codex, result.cwd ?? result.thread.cwd)).data
-    .find(m => m.model === result.model)?.defaultReasoningEffort ?? null;
+  const model = (await listModels(codex)).find(m => m.model === result.model);
+  const effort = modelEffort(model, result.reasoningEffort);
   return { model: result.model, effort,
     permissionMode: sandbox === 'dangerFullAccess' ? 'full-access' : sandbox === 'readOnly' ? 'read-only'
       : result.approvalPolicy === 'untrusted' ? 'untrusted' : result.approvalPolicy === 'never' ? 'never' : 'on-request' };

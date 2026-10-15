@@ -133,3 +133,60 @@ test('external history resumes in place, accepts settings, and refuses active hi
     assert.equal(codex.calls.some(c => c.method === 'thread/start'), false);
   } finally { server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); store.close(); }
 });
+
+test('host catalog includes arbitrary and hidden models, refreshes, and runs models without effort controls', async () => {
+  class CatalogCodex extends SettingsCodex {
+    names = ['deepseek-fixture', 'future-vendor-model'];
+    override async request(method: string, params: any): Promise<any> {
+      if (method === 'model/list') {
+        this.calls.push({ method, params });
+        const index = params.cursor ? 1 : 0;
+        return { data: [{ id: this.names[index], model: this.names[index], displayName: `Host ${index}`,
+          hidden: index === 1, supportedReasoningEfforts: index === 0 ? [] : [{ reasoningEffort: 'high', description: 'Host effort' }],
+          defaultReasoningEffort: index === 0 ? 'none' : 'high', isDefault: index === 0 }], nextCursor: index === 0 ? 'next-model' : null };
+      }
+      if (method === 'config/read') return { config: { model: this.names[0], model_reasoning_effort: 'high', private_setting: 'never expose' } };
+      if (method === 'thread/start') {
+        const result = await super.request(method, params);
+        return { ...result, model: this.names[0], reasoningEffort: 'high' };
+      }
+      return super.request(method, params);
+    }
+  }
+  const store = new Store(':memory:'); const codex = new CatalogCodex(); const server = api('test', codex, store);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const base = `http://127.0.0.1:${(server.address() as any).port}/v1/`;
+  const request = async (path: string, body?: unknown) => {
+    const response = await fetch(base + path, { headers: { Authorization: 'Bearer test' }, ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
+    return { status: response.status, data: await response.json() as any };
+  };
+  try {
+    const catalog = await request('models?cwd=/project');
+    assert.deepEqual(catalog.data.data.map((m: any) => m.model), codex.names);
+    assert.equal(catalog.data.defaults.model, 'deepseek-fixture');
+    assert.equal(catalog.data.defaults.effort, 'none');
+    assert.equal(catalog.data.data[0].defaultReasoningEffort, 'none');
+    assert.deepEqual(codex.calls.filter(c => c.method === 'model/list').map(c => c.params), [
+      { limit: 100, cursor: null, includeHidden: true }, { limit: 100, cursor: 'next-model', includeHidden: true },
+    ]);
+    assert.equal(JSON.stringify(catalog.data).includes('never expose'), false);
+    codex.names[1] = 'newly-added-model';
+    assert.equal((await request('models')).data.data[1].model, 'newly-added-model');
+    const created = await request('sessions', { cwd: '/project' });
+    assert.equal(created.data.executionSettings.effort, 'none');
+    const settings = { model: 'deepseek-fixture', effort: null, permissionMode: 'on-request' };
+    const saved = await request('sessions/thread/settings', settings);
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.data.executionSettings, { ...settings, effort: 'none' });
+    const run = await request('runs', { clientRequestId: 'custom-model', threadId: 'thread', text: 'Fixture input' });
+    assert.equal(run.status, 200);
+    assert.equal(run.data.state, 'running');
+    const turn = codex.calls.find(c => c.method === 'turn/start')!.params;
+    assert.equal(turn.model, 'deepseek-fixture');
+    assert.equal(turn.effort, 'none');
+    assert.equal(codex.calls.find(c => c.method === 'thread/resume')!.params.config.model_reasoning_effort, 'none');
+    store.updateRun(run.data.id, { state: 'completed' });
+    assert.equal((await request('sessions/thread/settings', { ...settings, model: 'newly-added-model', effort: 'low' })).status, 400);
+    assert.equal((await request('sessions/thread/settings', { ...settings, model: 'not-in-catalog' })).status, 400);
+  } finally { server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); store.close(); }
+});

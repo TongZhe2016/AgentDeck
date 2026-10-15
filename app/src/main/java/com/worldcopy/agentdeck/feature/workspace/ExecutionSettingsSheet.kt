@@ -111,7 +111,7 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
     val close: () -> Unit = {
         if (!saving) {
             if (!changed) dismiss()
-            else if (canEdit && selected != null && effort in efforts) {
+            else if (canEdit && selected != null && (efforts.isEmpty() || effort in efforts)) {
                 save(model, effort, permission)
             }
         }
@@ -142,17 +142,36 @@ fun ExecutionSettingsSheet(models: List<JSONObject>, loading: Boolean, error: St
                 Text(error, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = retry, enabled = !loading) { Text("重试读取模型") }
             }
-            item { Text("模型", style = MaterialTheme.typography.titleMedium) }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("模型", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = retry, enabled = !loading && !saving, modifier = Modifier.testTag("refresh-models")) { Text("刷新模型") }
+                }
+                Text("从当前电脑的 Codex 读取", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!loading && error == null && models.isEmpty()) Text("此电脑的 Codex 未返回可用模型")
+                if (!loading && changed && (selected == null || error != null)) {
+                    if (error == null) Text("所选模型已不在宿主机目录中，请重新选择。", color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = dismiss, enabled = !saving) { Text("放弃更改") }
+                }
+            }
             items(models, key = { it.string("id") }) { option ->
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = model == option.string("model"), enabled = canEdit, role = Role.RadioButton) { model = option.string("model"); edited = true },
                     verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = model == option.string("model"), onClick = null)
                     Spacer(Modifier.width(12.dp))
-                    Text(option.string("displayName").ifBlank { option.string("model") }, style = MaterialTheme.typography.bodyLarge)
+                    Column(Modifier.weight(1f)) {
+                        Text(option.string("displayName").ifBlank { option.string("model") }, style = MaterialTheme.typography.bodyLarge)
+                        if (option.string("displayName").isNotBlank() && option.string("displayName") != option.string("model")) {
+                            Text(option.string("model"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
             item {
-                EffortSlider(efforts, effort, enabled = canEdit) { effort = it; edited = true }
+                if (selected != null && efforts.isEmpty()) {
+                    Text("思考强度", style = MaterialTheme.typography.titleMedium)
+                    Text("此模型未提供可调思考档位", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else EffortSlider(efforts, effort, enabled = canEdit) { effort = it; edited = true }
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
