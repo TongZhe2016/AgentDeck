@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionSettings } from '../providers/execution-settings.js';
 
-export type Run = { id: string; requestId: string; threadId: string; turnId: string | null; state: string; text: string; error: string | null; createdAt: string };
+export type Run = { id: string; requestId: string; threadId: string; turnId: string | null; state: string; text: string; error: string | null; createdAt: string; mode: string; queueId: string | null };
 export type Approval = { id: string; runId: string; method: string; params: any; state: string };
 export type StoredEvent = { seq: number; type: string; data: any; createdAt: string };
 export class Store extends EventEmitter {
@@ -13,13 +13,17 @@ export class Store extends EventEmitter {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, requestId TEXT UNIQUE NOT NULL, threadId TEXT NOT NULL,
-        turnId TEXT, state TEXT NOT NULL, text TEXT NOT NULL, error TEXT, createdAt TEXT NOT NULL);
+        turnId TEXT, state TEXT NOT NULL, text TEXT NOT NULL, error TEXT, createdAt TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'start', queueId TEXT);
       CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, data TEXT NOT NULL, createdAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, runId TEXT NOT NULL, method TEXT NOT NULL, params TEXT NOT NULL, state TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS managed (threadId TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS session_settings (threadId TEXT PRIMARY KEY, settings TEXT NOT NULL);
     `);
-    const interrupted = this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','running','waiting_approval','waiting_input')").all() as Run[];
+    const columns = this.db.prepare('PRAGMA table_info(runs)').all().map(c => c.name);
+    if (!columns.includes('mode')) this.db.exec("ALTER TABLE runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'start'");
+    if (!columns.includes('queueId')) this.db.exec('ALTER TABLE runs ADD COLUMN queueId TEXT');
+    const interrupted = this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','sending','waiting_queue','running','waiting_approval','waiting_input')").all() as Run[];
     for (const run of interrupted) this.updateRun(run.id, { state: 'unknown', error: '电脑服务重启，执行结果待核实；不会自动重发。' });
     const pending = this.approvals();
     this.db.exec("UPDATE approvals SET state='expired' WHERE state='pending'");
@@ -41,11 +45,11 @@ export class Store extends EventEmitter {
   }
   runByRequest(id: string) { return this.db.prepare('SELECT * FROM runs WHERE requestId=?').get(id) as Run | undefined; }
   run(id: string) { return this.db.prepare('SELECT * FROM runs WHERE id=?').get(id) as Run | undefined; }
-  runs() { return this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','running','waiting_approval','waiting_input','unknown') OR id IN (SELECT id FROM runs ORDER BY createdAt DESC LIMIT 100) ORDER BY createdAt DESC").all() as Run[]; }
-  active(threadId: string) { return this.db.prepare("SELECT * FROM runs WHERE threadId=? AND state IN ('queued','running','waiting_approval','waiting_input','unknown') ORDER BY createdAt DESC LIMIT 1").get(threadId) as Run | undefined; }
-  createRun(requestId: string, threadId: string, text: string): Run {
-    const run = { id: randomUUID(), requestId, threadId, turnId: null, state: 'queued', text, error: null, createdAt: new Date().toISOString() };
-    this.db.prepare('INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(...Object.values(run));
+  runs() { return this.db.prepare("SELECT * FROM runs WHERE state IN ('queued','sending','waiting_queue','running','waiting_approval','waiting_input','unknown') OR id IN (SELECT id FROM runs ORDER BY createdAt DESC LIMIT 100) ORDER BY createdAt DESC").all() as Run[]; }
+  active(threadId: string) { return this.db.prepare("SELECT * FROM runs WHERE threadId=? AND mode!='steer' AND NOT(mode='queue' AND turnId IS NULL) AND state IN ('queued','running','waiting_approval','waiting_input','unknown') ORDER BY createdAt DESC LIMIT 1").get(threadId) as Run | undefined; }
+  createRun(requestId: string, threadId: string, text: string, mode = 'start'): Run {
+    const run: Run = { id: randomUUID(), requestId, threadId, turnId: null, state: mode === 'start' ? 'queued' : 'sending', text, error: null, createdAt: new Date().toISOString(), mode, queueId: null };
+    this.db.prepare('INSERT INTO runs(id,requestId,threadId,turnId,state,text,error,createdAt,mode,queueId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...Object.values(run));
     return run;
   }
   updateRun(id: string, change: Partial<Run>) {
@@ -53,7 +57,7 @@ export class Store extends EventEmitter {
     if (!run) return;
     const updated = { ...run, ...change };
     this.transaction(() => {
-      this.db.prepare('UPDATE runs SET turnId=?, state=?, error=? WHERE id=?').run(updated.turnId, updated.state, updated.error, id);
+      this.db.prepare('UPDATE runs SET turnId=?, state=?, error=?, queueId=? WHERE id=?').run(updated.turnId, updated.state, updated.error, updated.queueId, id);
       this.insertEvent('run.updated', updated);
     });
     this.emit('event');

@@ -112,11 +112,14 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
         }
         return;
       }
+      const resumeQueue = path.match(/^\/v1\/sessions\/([^/]+)\/queue\/resume$/);
+      if (resumeQueue && req.method === 'POST') { json(res, await coordinator.resumeQueue(decodeURIComponent(resumeQueue[1]))); return; }
       const settingsRoute = path.match(/^\/v1\/sessions\/([^/]+)\/settings$/);
       if (settingsRoute && req.method === 'POST') {
         const id = decodeURIComponent(settingsRoute[1]);
         if (!store.managed(id)) throw new Error('请先恢复此历史会话');
         if (store.active(id)) throw new Error('请等待本轮执行结束后再修改设置');
+        if (store.runs().some(r => r.threadId === id && r.mode === 'queue' && ['sending', 'waiting_queue', 'unknown'].includes(r.state))) throw new Error('请先处理排队消息后再修改执行设置');
         const settings = await validateSettings(codex, await body(req));
         store.saveSettings(id, settings);
         json(res, { executionSettings: settings }); return;
@@ -147,19 +150,14 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       }
       if (path === '/v1/runs' && req.method === 'POST') {
         const b = await body(req);
-        const run = await coordinator.start(text(b.clientRequestId, '请求 ID'), text(b.threadId, '会话 ID'), text(b.text, '消息'), b.attachments ?? []);
+        const run = await coordinator.start(text(b.clientRequestId, '请求 ID'), text(b.threadId, '会话 ID'), text(b.text, '消息'), b.attachments ?? [], b.mode ?? 'start');
         json(res, { ...run, ...(isActiveWriterError(run.error) ? { writerState: 'external' } : {}) }); return;
       }
       const cancel = path.match(/^\/v1\/runs\/([^/]+)\/cancel$/);
       if (cancel && req.method === 'POST') { json(res, await coordinator.cancel(cancel[1])); return; }
       const reconcile = path.match(/^\/v1\/runs\/([^/]+)\/reconcile$/);
       if (reconcile && req.method === 'POST') {
-        const run = store.run(reconcile[1]);
-        if (!run || run.state !== 'unknown') throw new Error('执行无需核实');
-        const result = await codex.request('thread/read', { threadId: run.threadId, includeTurns: true });
-        const turn = result.thread.turns.find((t: any) => t.id === run.turnId);
-        if (turn && ['completed', 'failed', 'interrupted'].includes(turn.status)) store.updateRun(run.id, { state: turn.status, error: null });
-        json(res, store.run(run.id)); return;
+        json(res, await coordinator.reconcile(reconcile[1])); return;
       }
       const approval = path.match(/^\/v1\/approvals\/([^/]+)$/);
       if (approval && req.method === 'POST') { const b = await body(req); coordinator.respond(approval[1], b.decision, b.answers); json(res, { ok: true }); return; }

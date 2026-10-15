@@ -17,7 +17,11 @@ HTTP 与 SSE 仅经 SSH loopback 转发访问。每个请求必须携带 `Author
 - `POST /v1/sessions/:id/takeover`：通过原生 resume 尝试取得写入权；成功返回 `{acquired:true,thread}`，其中 thread 含实际设置、managed=true、writerState=owned；其他写入者仍占用时返回 `{acquired:false,writerState:"external",message:"有其他用户正在使用"}`。不终止其他进程或删除写入锁。本服务活动执行须先结束或核实。
 - `POST /v1/sessions/:id/fork`：原生 fork 已存历史到新 ID；可传 `{ "lastTurnId": "…" }` 保留到指定已结束轮次（含该轮），省略则复制全部已存历史。进行中的轮次由 Codex 拒绝。返回新会话及实际设置、managed=true、writerState=owned；原会话保持原状。
 - 读取会话详情附带 `writerState`：owned（本服务已加载）、external（存在其他端写入锁提示）、available（未发现写入锁）。锁存在不等同于仍被持有，接管接口给出最终结果。恢复／设置时发现 Active Writer 返回 HTTP 400、`code:"active_writer"`；执行派发失败返回的 run 附带 `writerState:"external"`，客户端保留草稿与附件并回到接管入口。
-- `POST /v1/runs {clientRequestId,threadId,text,attachments?:[id]}`：先保存请求身份，再派发。相同 ID 和内容返回已有结果；同 ID 不同内容报错；同会话活动执行互斥。
+- `POST /v1/runs {clientRequestId,threadId,text,attachments?:[id],mode?:"start"|"steer"|"queue"}`：先保存请求身份，再派发。空闲会话直接 `turn/start`；执行中 `steer` 使用原生 `turn/steer` 和 `expectedTurnId` 加入当前轮次，`queue` 使用原生 `thread/queue/add`，由 Codex 在当前轮次结束后按序处理。省略 mode 为 start，已有活动执行时拒绝。所有模式均传 `clientUserMessageId=clientRequestId`，相同 ID 和内容只返回首次提交的已有结果，不因重试或更改模式再次派发；同 ID 不同内容／附件报错。结果待核实的当前执行仍需先核实。
+- Run 增加 `mode`（实际使用的 start／steer／queue）与 `queueId`（原生排队 ID）。状态 `sending` 表示已保存且正在向 Codex 提交，`waiting_queue` 表示原生队列已接收，`steered` 表示引导已接收。引导记录不替代当前执行的审批／取消归属；队列启动时依据原生 `userMessage.clientId` 绑定自己的 `turnId`，随后沿用 running／completed 等状态。手机断开不影响原生队列执行。
+- `POST /v1/runs/:id/cancel`：活动轮次调用 `turn/interrupt`；尚未开始的 waiting_queue 消息调用 `thread/queue/delete`，只移除该条待发消息。
+- `POST /v1/runs/:id/reconcile`：unknown 请求按原生队列中的 `clientUserMessageId` 或历史消息的 `clientId` 核实，普通旧执行也可按已有 turnId 核实。未找到记录时保留 unknown，不自动重发。
+- `POST /v1/sessions/:id/queue/resume`：当前执行已结束或核实后，显式恢复原生会话及保留的队列；不重新添加消息。服务重启把在途执行／队列标为 unknown，手机先核实，再按需恢复排队。模型、档位和权限需等执行与待发队列处理完后修改。
 - `POST /v1/attachments/:id?threadId=`：上传图片／录音二进制，Content-Type 指定类型，上限 10 MiB；同 ID 重试返回原附件，只能用于所属会话。
 - `GET /v1/attachments/:id`、`DELETE /v1/attachments/:id`：读取／删除附件；已被执行引用的图片保留供原生历史恢复。
 - `POST /v1/transcriptions {attachmentId,threadId}`：本地录音转写，返回 `{text}`，相同录音成功结果可重复读取。不会启动 Codex turn。手机确认文字后发送；原始音频不能直接用于 `/runs`。
