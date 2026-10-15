@@ -38,7 +38,7 @@ test('uploaded package installs into an isolated home and reaches authenticated 
   try {
     const child = spawn(process.execPath,[join(stage,'install.mjs'),data,String(port)],{env});
     let output = ''; child.stdout.on('data',x=>output+=x); child.stderr.on('data',x=>output+=x);
-    const [code] = await once(child,'exit'); assert.equal(code,0,output);
+    const [code] = await once(child,'exit'); assert.equal(code,0,output + (existsSync(join(root,'service.log')) ? readFileSync(join(root,'service.log'),'utf8') : ''));
     assert.match(output,/安装完成/);
     const token = readFileSync(join(data,'token'),'utf8').trim();
     const res = await fetch(`http://127.0.0.1:${port}/v1/health`,{headers:{Authorization:`Bearer ${token}`}});
@@ -46,5 +46,10 @@ test('uploaded package installs into an isolated home and reaches authenticated 
     const retry = spawn(process.execPath,[join(stage,'install.mjs'),data,String(port)],{env});
     let err='';retry.stderr.on('data',x=>err+=x);
     const [retryCode] = await once(retry,'exit'); assert.notEqual(retryCode,0); assert.match(err,/已存在 AgentDeck 安装/);
-  } finally { if (existsSync(join(root,'pid'))) process.kill(Number(readFileSync(join(root,'pid'),'utf8').trim()),'SIGTERM'); }
+  } finally {
+    if (existsSync(join(root,'pid'))) {
+      try { process.kill(Number(readFileSync(join(root,'pid'),'utf8').trim()),'SIGTERM'); }
+      catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
+  }
 });

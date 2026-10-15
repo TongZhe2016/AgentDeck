@@ -39,13 +39,16 @@ export class Codex extends EventEmitter {
     const child = this.process = spawn(this.executable, ['app-server'], { stdio: 'pipe', env: { ...process.env, CODEX_HOME: this.codexHome } });
     child.stderr.on('data', () => {}); // Drain diagnostics; do not include local secrets in the API.
     const fail = (error: Error) => {
+      if (this.process !== child) return;
       for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(error); }
       this.pending.clear();
       this.process = undefined;
       this.ready = undefined;
+      child.kill();
       this.emit('stopped', error.message);
     };
     child.on('error', fail);
+    child.stdin.on('error', fail);
     child.on('exit', (code, signal) => fail(new Error(`Codex 已退出 (${code ?? signal})`)));
     createInterface({ input: child.stdout }).on('line', line => {
       let message: RpcMessage;
