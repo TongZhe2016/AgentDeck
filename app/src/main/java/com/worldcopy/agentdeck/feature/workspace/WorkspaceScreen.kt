@@ -131,29 +131,56 @@ private fun Chat(vm: WorkspaceViewModel) {
     val listState = rememberLazyListState()
     var positioned by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val latestMessage = vm.messages.lastOrNull()
+    val runs = vm.runs.filter { it.optString("threadId") == thread.getString("id") }
+    val executionRuns = runs.filter { it.string("mode") != "steer" && (it.string("mode") != "queue" || it.string("turnId").isNotBlank()) }
+    val active = executionRuns.firstOrNull { it.optString("state") in listOf("queued", "running", "waiting_approval", "waiting_input", "unknown") }
+    val pendingQueue = runs.filter { it.string("mode") == "queue" && it.string("state") in listOf("sending", "waiting_queue", "unknown") && it.string("turnId").isBlank() }
+        .sortedBy { it.string("createdAt") }
+    val pendingSubmissions = pendingQueue + runs.filter { it.string("mode") == "steer" && it.string("state") == "unknown" }
+    val latestContent = Triple(vm.messages.lastOrNull(), pendingSubmissions.map { it.string("id") }, active?.string("id"))
     // Capture the position before new content is measured and stable item keys shift its index.
-    val followLatest = remember(latestMessage) {
+    val followLatest = remember(latestContent) {
         !positioned || (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0)
     }
-    LaunchedEffect(latestMessage) {
-        if (latestMessage != null && followLatest) {
+    LaunchedEffect(latestContent) {
+        if ((latestContent.first != null || latestContent.second.isNotEmpty() || latestContent.third != null) && followLatest) {
             listState.scrollToItem(0)
             positioned = true
         }
     }
     val timeline = remember(vm.messages) { executionTimeline(vm.messages) }
-    val runs = vm.runs.filter { it.optString("threadId") == thread.getString("id") }
-    val active = runs.firstOrNull { it.optString("state") in listOf("queued", "running", "waiting_approval", "waiting_input", "unknown") }
+    var showMessageSettings by remember { mutableStateOf(false) }
+    if (showMessageSettings) MessageSettingsDialog(vm.messageSettings) { showMessageSettings = false }
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
         val composerMaxHeight = maxHeight * 0.6f
         Column(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.weight(1f).testTag("chat-messages"), state = listState, reverseLayout = true,
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (active == null && runs.isNotEmpty()) item(key = "last-run") {
+                if (active == null && executionRuns.isNotEmpty()) item(key = "last-run") {
                     Column {
-                        Text("上一轮：${stateName(runs.first().optString("state"))}")
-                        runs.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        Text("上一轮：${stateName(executionRuns.first().optString("state"))}")
+                        executionRuns.first().string("error").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+                items(pendingSubmissions.asReversed(), key = { "followup:${it.getString("id")}" }) { submission ->
+                    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth().testTag("pending-message-${submission.getString("id")}")) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(when (submission.string("state")) {
+                                "unknown" -> "${if (submission.string("mode") == "steer") "引导" else "排队"}送达待核实"
+                                "sending" -> "正在发送排队消息…"
+                                else -> if (active == null) "排队已暂停 · 可恢复或移除" else "已排队 · 当前任务结束后处理"
+                            },
+                                style = MaterialTheme.typography.labelLarge)
+                            SelectionContainer { Text(submission.string("text")) }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (submission.string("state") == "unknown") TextButton(onClick = { vm.reconcile(submission) }, enabled = vm.online && !vm.busy) { Text("核实送达") }
+                                else if (submission.string("state") == "waiting_queue") {
+                                    TextButton(onClick = { vm.cancel(submission) }, enabled = vm.online && !vm.busy) { Text("移除排队消息") }
+                                    if (active == null && submission == pendingQueue.firstOrNull()) TextButton(onClick = vm::resumeQueue, enabled = vm.online && !vm.busy) { Text("恢复排队") }
+                                }
+                            }
+                        }
                     }
                 }
                 if (active != null) item(key = "active-run") {
@@ -172,7 +199,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                 items(timeline.asReversed(), key = { it.key }) { entry ->
                     val item = entry.message
                     if (item == null) {
-                        val run = runs.firstOrNull { it.string("turnId") == entry.turnId }
+                        val run = executionRuns.firstOrNull { it.string("turnId") == entry.turnId }
                         val latest = timeline.lastOrNull { it.message == null && it.turnId == entry.turnId }?.key == entry.key
                         ExecutionCard(entry.key, entry.steps, if (latest) run?.string("state") ?: "completed" else "completed")
                     } else Surface(color = if (item.role == "你") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
@@ -208,7 +235,10 @@ private fun Chat(vm: WorkspaceViewModel) {
                             Text(if (vm.busy) "正在接管…" else if (vm.writerNotice != null) "重试接管" else "接管会话")
                         }
                     } else {
-                        ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && active == null && !vm.hasUnconfirmedSubmission)
+                        ExecutionSettingsBar(vm, enabled = vm.online && !vm.busy && active == null && pendingQueue.isEmpty() && !vm.hasUnconfirmedSubmission)
+                        TextButton(onClick = { showMessageSettings = true }, enabled = !vm.busy, modifier = Modifier.testTag("followup-settings")) {
+                            Text("后续消息：${vm.messageSettings.followupMode.label}")
+                        }
                         if (vm.attachments.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             vm.attachments.forEachIndexed { index, attachment ->
                                 if (attachment.mime.startsWith("image/")) com.worldcopy.agentdeck.feature.media.ImageThumbnail(attachment.path)
@@ -221,9 +251,9 @@ private fun Chat(vm: WorkspaceViewModel) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
                             OutlinedTextField(vm.draft, vm::updateDraft, Modifier.weight(1f), label = { Text("输入消息") }, maxLines = 4,
                                 shape = MaterialTheme.shapes.medium)
-                            Button(onClick = vm::send, enabled = vm.online && !vm.busy && (active == null || vm.hasUnconfirmedSubmission),
+                            Button(onClick = vm::send, enabled = vm.online && !vm.busy && (active?.string("state") != "unknown" || vm.hasUnconfirmedSubmission),
                                 contentPadding = PaddingValues(horizontal = 16.dp), modifier = Modifier.heightIn(min = 56.dp)) {
-                                Text(if (vm.hasUnconfirmedSubmission) "确认送达" else if (!thread.optBoolean("managed")) "继续对话" else "发送")
+                                Text(if (vm.hasUnconfirmedSubmission) "确认送达" else if (!thread.optBoolean("managed")) "继续对话" else if (active != null || pendingQueue.isNotEmpty()) vm.messageSettings.followupMode.label else "发送")
                             }
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {

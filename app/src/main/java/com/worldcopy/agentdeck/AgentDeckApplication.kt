@@ -11,6 +11,7 @@ import com.worldcopy.agentdeck.feature.hosts.HostsViewModel
 import com.worldcopy.agentdeck.feature.workspace.WorkspaceViewModel
 
 class AgentDeckApplication : Application(), ViewModelStoreOwner {
+    val messageSettings by lazy { com.worldcopy.agentdeck.core.storage.MessageSettings(this) }
     fun ensureConnectionService() {
         if (hosts.hosts.isEmpty()) stopService(Intent(this, ConnectionService::class.java))
         else if (!ConnectionService.active) startForegroundService(Intent(this, ConnectionService::class.java))

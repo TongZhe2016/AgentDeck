@@ -57,6 +57,9 @@ fun ExecutionCard(id: String, steps: List<ChatItem>, state: String) {
 
 internal fun stateName(state: String) = when (state) {
     "queued" -> "已排队"
+    "sending" -> "发送中"
+    "waiting_queue" -> "等待下一轮"
+    "steered" -> "已引导当前轮次"
     "running", "inProgress" -> "执行中"
     "waiting_approval" -> "等待审批"
     "waiting_input" -> "等待回答"

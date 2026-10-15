@@ -85,6 +85,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     val hostName get() = (getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication).hosts.hosts.firstOrNull { it.id == hostId }?.name ?: "电脑"
     private var requestId: String? = null
     private var pendingText: String? = null
+    private var pendingMode: String? = null
+    val messageSettings get() = (getApplication<Application>() as com.worldcopy.agentdeck.AgentDeckApplication).messageSettings
     private var cursor = 0L
     private val notifications = com.worldcopy.agentdeck.core.notifications.RunNotifications(application)
     private val cacheDir = File(application.noBackupFilesDir, "workspace").apply { mkdirs() }
@@ -207,7 +209,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     }
     private fun saveDraft() {
         val id = selected?.optString("id") ?: return
-        writeCache("draft-$id", JSONObject().put("draft", draft).put("requestId", requestId).put("pendingText", pendingText).put("pendingAttachments", pendingAttachments?.let { JSONArray(it) }).put("attachments", JSONArray(attachments.map { JSONObject().put("id", it.id).put("path", it.path).put("mime", it.mime).put("uploaded", it.uploaded) })).toString())
+        writeCache("draft-$id", JSONObject().put("draft", draft).put("requestId", requestId).put("pendingText", pendingText).put("pendingMode", pendingMode).put("pendingAttachments", pendingAttachments?.let { JSONArray(it) }).put("attachments", JSONArray(attachments.map { JSONObject().put("id", it.id).put("path", it.path).put("mime", it.mime).put("uploaded", it.uploaded) })).toString())
     }
     private fun work(onFailure: (String) -> Unit = { error = it }, action: suspend () -> Unit) {
         if (busy) return
@@ -499,6 +501,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         saveDraft(); selected = session; project = session.optString("cwd"); messages = emptyList(); historyCursor = null
         val cached = file("draft-${session.getString("id")}").takeIf { it.exists() }?.let { JSONObject(it.readText()) }
         draft = cached?.optString("draft") ?: ""; requestId = cached?.string("requestId")?.ifBlank { null }; pendingText = cached?.string("pendingText")?.ifBlank { null }
+        pendingMode = cached?.string("pendingMode")?.ifBlank { null }
         attachments = cached?.optJSONArray("attachments").objects().map { DraftAttachment(it.getString("id"), it.getString("path"), it.getString("mime"), it.optBoolean("uploaded")) }
         pendingAttachments = cached?.optJSONArray("pendingAttachments")?.let { a -> (0 until a.length()).map { a.getString(it) } }
     }
@@ -557,24 +560,34 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             saveDraft()
         }
         val id = requestId ?: UUID.randomUUID().toString().also {
-            requestId = it; pendingText = draft.ifBlank { "请查看附件。" }; pendingAttachments = attachments.map { a -> a.id }
+            requestId = it; pendingText = draft.ifBlank { "请查看附件。" }; pendingAttachments = attachments.map { a -> a.id }; pendingMode = messageSettings.followupMode.value
         }
         saveDraft()
-        val result = api!!.post("runs", JSONObject().put("threadId", session.getString("id")).put("clientRequestId", id).put("text", pendingText).put("attachments", JSONArray(pendingAttachments ?: emptyList<String>())))
+        val result = api!!.post("runs", JSONObject().put("threadId", session.getString("id")).put("clientRequestId", id).put("text", pendingText).put("mode", pendingMode ?: "start").put("attachments", JSONArray(pendingAttachments ?: emptyList<String>())))
         runs = listOf(result) + runs.filter { it.optString("id") != result.optString("id") }
         if (result.string("writerState") == "external") {
             markExternalWriter()
-            requestId = null; pendingText = null; pendingAttachments = null
+            requestId = null; pendingText = null; pendingAttachments = null; pendingMode = null
             saveDraft()
             return@work
         }
-        if (followJob?.isActive != true && result.string("state") != "failed") startFollowing(session)
+        if (result.string("state") == "failed") {
+            requestId = null; pendingText = null; pendingAttachments = null; pendingMode = null
+            error = result.string("error").ifBlank { "发送失败，请重试" }
+            saveDraft()
+            return@work
+        }
+        if (followJob?.isActive != true) startFollowing(session)
         if (draft == pendingText) draft = ""
-        requestId = null; pendingText = null; pendingAttachments = null
+        requestId = null; pendingText = null; pendingAttachments = null; pendingMode = null
         attachments.forEach { File(it.path).delete() }; attachments = emptyList(); saveDraft()
     }
     val hasUnconfirmedSubmission get() = requestId != null
     fun cancel(run: JSONObject) = work { api!!.post("runs/${run.getString("id")}/cancel") }
+    fun resumeQueue() = work {
+        val id = selected?.getString("id") ?: return@work
+        api!!.post("sessions/$id/queue/resume")
+    }
     fun reconcile(run: JSONObject) = work {
         val result = api!!.post("runs/${run.getString("id")}/reconcile")
         runs = runs.map { if (it.getString("id") == result.getString("id")) result else it }

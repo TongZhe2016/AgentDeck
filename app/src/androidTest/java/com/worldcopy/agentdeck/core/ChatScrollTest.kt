@@ -55,7 +55,9 @@ class ChatScrollTest {
                         .put("data", JSONObject().put("method", method).put("params", params
                             .put("threadId", "thread").put("turnId", "turn"))).toString())
                 }
-                event("item/agentMessage/delta", JSONObject().put("itemId", "latest").put("delta", "\n流式回复末尾"))
+                // A completed history item cannot receive more deltas; model the next live item.
+                event("item/started", JSONObject().put("item", JSONObject().put("id", "streaming").put("type", "agentMessage").put("text", "")))
+                event("item/agentMessage/delta", JSONObject().put("itemId", "streaming").put("delta", history.last().getString("text") + "\n流式回复末尾"))
                 compose.waitUntil(10_000) { vm.messages.last().text.endsWith("流式回复末尾") }
                 assertLastLineVisible("流式回复末尾")
                 event("item/completed", JSONObject().put("item", JSONObject().put("id", "new")

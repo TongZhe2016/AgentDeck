@@ -91,6 +91,8 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
     var showBackgroundSettings by rememberSaveable { mutableStateOf(false) }
+    var showMessageSettings by rememberSaveable { mutableStateOf(false) }
+    if (showMessageSettings) com.worldcopy.agentdeck.feature.workspace.MessageSettingsDialog(app.messageSettings) { showMessageSettings = false }
     val connectionPreferences = remember { context.getSharedPreferences("connection", Context.MODE_PRIVATE) }
     val powerManager = remember { context.getSystemService(PowerManager::class.java) }
     fun offerBatterySetup() {
@@ -175,6 +177,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
                             onClick = { navigate(1); menu = false })
                         DropdownMenuItem(text = { Text("后台运行设置") },
                             onClick = { showBackgroundSettings = true; menu = false })
+                        DropdownMenuItem(text = { Text("消息发送设置") }, onClick = { showMessageSettings = true; menu = false })
                         if (Build.VERSION.SDK_INT >= 31) DropdownMenuItem(
                             text = { Text(if (dynamicColor) "使用掌舵配色" else "使用系统壁纸配色") },
                             onClick = { changeDynamicColor(!dynamicColor); menu = false })

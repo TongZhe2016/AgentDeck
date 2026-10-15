@@ -284,6 +284,7 @@ internal class WorkspaceFixtureService(
     var externalWriter = false
     var refuseTakeover = false
     var runWriterConflict = false
+    var runResponse: ((JSONObject) -> JSONObject)? = null
     val writes = CopyOnWriteArrayList<Pair<String, JSONObject>>()
     var settings = JSONObject().put("model", "gpt-6.1-sol").put("effort", "high").put("permissionMode", "on-request")
     private val sockets = CopyOnWriteArrayList<Socket>()
@@ -360,6 +361,7 @@ internal class WorkspaceFixtureService(
             }
             path == "/v1/sessions/thread/fork" -> JSONObject().put("id", "forked").put("forkedFromId", "thread")
                 .put("cwd", "/fixture").put("managed", true).put("writerState", "owned").put("executionSettings", settings)
+            path == "/v1/sessions/thread/queue/resume" -> JSONObject().put("ok", true)
             path.contains("/updates") -> {
                 updates.incrementAndGet()
                 JSONObject().put("turns", liveTurns).put("liveCursor", "fixture-anchor").put("more", false)
@@ -378,6 +380,8 @@ internal class WorkspaceFixtureService(
                 managed = true
                 JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", true).put("executionSettings", settings)
             }
+            path == "/v1/runs" && runResponse != null -> runResponse!!.invoke(JSONObject(String(body)))
+            path.startsWith("/v1/runs/") && path.endsWith("/cancel") -> JSONObject().put("ok", true)
             path == "/v1/runs" -> {
                 check(managed)
                 JSONObject().put("id", "run").put("threadId", "thread").put("turnId", "next-turn")
