@@ -3,6 +3,22 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+abstract class BuildMobileAssets : Exec() {
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+}
+val mobileAssets = tasks.register<BuildMobileAssets>("buildMobileAssets") {
+    outputDirectory.set(layout.buildDirectory.dir("generated/mobileAssets"))
+    workingDir(rootDir)
+    commandLine("node", "scripts/build-mobile-assets.mjs", layout.buildDirectory.dir("generated/mobileAssets").get().asFile.absolutePath)
+    inputs.files(rootProject.fileTree("host-service/src"), rootProject.fileTree("host-service/scripts"),
+        rootProject.file("host-service/package-lock.json"), rootProject.file("host-service/package.json"), rootProject.file("host-service/tsconfig.json"),
+        rootProject.fileTree("tools/mobile-assets") { exclude("node_modules/**") },
+        rootProject.file("scripts/build-mobile-assets.mjs"), rootProject.file("scripts/mobile-install.mjs"), rootProject.file("scripts/mobile-bootstrap.sh"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(mobileAssets, BuildMobileAssets::outputDirectory)
+}
+
 android {
     namespace = "com.worldcopy.agentdeck"
     compileSdk {
@@ -34,6 +50,7 @@ android {
         compose = true
     }
     packaging.resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+    androidResources.noCompress += "tgz"
     sourceSets.getByName("androidTest").assets.srcDir("src/test/resources")
 }
 
