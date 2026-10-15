@@ -16,8 +16,8 @@ export class SessionControl {
     }
   }
 
-  async fork(id: string) {
-    const result = await this.codex.request('thread/fork', { threadId: id, excludeTurns: true, ...threadSettings(this.store.settings(id)) });
+  async fork(id: string, lastTurnId?: string) {
+    const result = await this.codex.request('thread/fork', { threadId: id, ...(lastTurnId ? { lastTurnId } : {}), excludeTurns: true, ...threadSettings(this.store.settings(id)) });
     return this.adopt(result);
   }
 

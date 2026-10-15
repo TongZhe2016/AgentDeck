@@ -104,7 +104,13 @@ export function api(token: string, codex: Codex, store: Store, attachmentDirecto
       const controlRoute = path.match(/^\/v1\/sessions\/([^/]+)\/(takeover|fork)$/);
       if (controlRoute && req.method === 'POST') {
         const id = decodeURIComponent(controlRoute[1]);
-        json(res, controlRoute[2] === 'takeover' ? await control.takeOver(id) : await control.fork(id)); return;
+        if (controlRoute[2] === 'takeover') json(res, await control.takeOver(id));
+        else {
+          const b = await body(req);
+          const lastTurnId = b.lastTurnId == null ? undefined : text(b.lastTurnId, '分叉轮次');
+          json(res, await control.fork(id, lastTurnId));
+        }
+        return;
       }
       const settingsRoute = path.match(/^\/v1\/sessions\/([^/]+)\/settings$/);
       if (settingsRoute && req.method === 'POST') {

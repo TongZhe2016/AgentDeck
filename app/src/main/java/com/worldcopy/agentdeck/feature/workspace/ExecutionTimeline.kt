@@ -9,6 +9,7 @@ data class ChatItem(
     val execution: Boolean = role.startsWith("命令") || role.startsWith("工具") || role == "文件变更" || role == "计划",
     val summary: String = "",
     val status: String = "",
+    val canFork: Boolean = false,
 )
 
 data class ChatEntry(val key: String, val message: ChatItem? = null, val steps: List<ChatItem> = emptyList(), val turnId: String = "")

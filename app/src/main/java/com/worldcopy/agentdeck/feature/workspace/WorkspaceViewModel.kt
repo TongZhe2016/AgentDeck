@@ -363,7 +363,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                         if (data.string("method") == "item/started" && id in completeMessages) return
                         flushStreamText()
                         if (item.string("type") == "agentMessage" && data.string("method") == "item/completed") completeMessages += id
-                        parseItem(item, params.string("turnId"))?.let { parsed -> messages = if (messages.any { it.id == parsed.id }) messages.map { if (it.id == parsed.id) parsed else it } else messages + parsed }
+                        parseItem(item, params.string("turnId"))?.let { parsed -> messages = if (messages.any { it.id == parsed.id }) messages.map { if (it.id == parsed.id) parsed.copy(canFork = it.canFork) else it } else messages + parsed }
                     }
                     "item/agentMessage/delta" -> {
                         val id = params.getString("itemId")
@@ -474,7 +474,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             }
             messages = history.optJSONArray("messages").objects().map { ChatItem(it.getString("id"), it.getString("role"), it.getString("text"), it.string("turnId"),
                 execution = if (it.has("execution")) it.optBoolean("execution") else it.string("role").let { role -> role.startsWith("命令") || role.startsWith("工具") || role == "文件变更" || role == "计划" },
-                summary = it.string("summary"), status = it.string("status")) }
+                summary = it.string("summary"), status = it.string("status"), canFork = it.optBoolean("canFork")) }
         }
         if (api == null) return@work
         val result = api!!.get("sessions/${session.getString("id")}")
@@ -525,9 +525,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             }
         } finally { showFork = true }
     }
-    fun forkSession() = work {
+    fun forkSession(lastTurnId: String? = null) = work {
         val id = selected?.getString("id") ?: return@work
-        val result = api!!.post("sessions/$id/fork")
+        val result = api!!.post("sessions/$id/fork", JSONObject().apply { lastTurnId?.let { put("lastTurnId", it) } })
         showSession(result)
         projectSessions = listOf(result) + projectSessions.filter { it.string("id") != result.string("id") }
         sessions = listOf(result) + sessions.filter { it.string("id") != result.string("id") }
@@ -683,12 +683,16 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         val snapshot = messages.takeLast(500)
         withContext(Dispatchers.IO) { writeCache("history-$id", JSONObject().put("executionSettings", settings).put("messages", JSONArray(snapshot.map {
             JSONObject().put("id", it.id).put("role", it.role).put("text", it.text).put("turnId", it.turnId)
-                .put("execution", it.execution).put("summary", it.summary).put("status", it.status)
+                .put("execution", it.execution).put("summary", it.summary).put("status", it.status).put("canFork", it.canFork)
         })).toString()) }
     }
     private suspend fun parseTurns(result: JSONObject): List<ChatItem> = withContext(Dispatchers.Default) {
         result.optJSONArray("turns").objects().flatMap { turn ->
-            turn.optJSONArray("items").objects().mapNotNull { parseItem(it, turn.string("id")) }
+            val items = turn.optJSONArray("items").objects().mapNotNull { parseItem(it, turn.string("id")) }
+            // Native forks end at a finished turn, so only its final answer gets the action.
+            val answer = items.lastOrNull { it.role == "Agent" }
+            items.map { it.copy(canFork = it === answer && it.turnId.isNotBlank() &&
+                turn.string("status") in listOf("completed", "interrupted", "failed")) }
         }
     }
     private fun parseItem(item: JSONObject, turnId: String): ChatItem? {

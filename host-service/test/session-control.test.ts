@@ -38,9 +38,9 @@ test('external idle writer hides editing before resume; takeover failure and for
   const codex = new WriterCodex('unused', dir); const store = new Store(':memory:');
   const server = api('fixture', codex, store);
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const request = async (path: string, post = false) => {
+  const request = async (path: string, post = false, body = {}) => {
     const res = await fetch(`http://127.0.0.1:${(server.address() as any).port}/v1/sessions/${path}`, {
-      method: post ? 'POST' : 'GET', headers: { Authorization: 'Bearer fixture' }, ...(post ? { body: '{}' } : {}),
+      method: post ? 'POST' : 'GET', headers: { Authorization: 'Bearer fixture' }, ...(post ? { body: JSON.stringify(body) } : {}),
     });
     return { status: res.status, body: await res.json() as any };
   };
@@ -63,6 +63,13 @@ test('external idle writer hides editing before resume; takeover failure and for
     assert.equal(store.managed('forked'), true);
     assert.equal(store.managed('original'), false);
     assert.equal(codex.calls.find(c => c.method === 'thread/fork')!.params.excludeTurns, true);
+    assert.equal(codex.calls.find(c => c.method === 'thread/fork')!.params.lastTurnId, undefined);
+    const atReply = await request('original/fork', true, { lastTurnId: 'earlier-turn' });
+    assert.equal(atReply.status, 200);
+    assert.equal(codex.calls.filter(c => c.method === 'thread/fork').at(-1)!.params.lastTurnId, 'earlier-turn');
+    const forkCalls = codex.calls.filter(c => c.method === 'thread/fork').length;
+    assert.equal((await request('original/fork', true, { lastTurnId: '' })).status, 400);
+    assert.equal(codex.calls.filter(c => c.method === 'thread/fork').length, forkCalls);
     codex.blocked = false;
     const acquired = await request('original/takeover', true);
     assert.equal(acquired.body.acquired, true);

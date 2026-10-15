@@ -179,6 +179,11 @@ private fun Chat(vm: WorkspaceViewModel) {
                         shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(start = if (item.role == "你") 24.dp else 0.dp)) {
                         Column(Modifier.padding(12.dp)) {
                             SelectionContainer { MessageText(item.text, onMessageLink) }
+                            if (item.canFork) TextButton(onClick = { vm.forkSession(item.turnId) },
+                                enabled = vm.online && !vm.busy,
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("fork-message-${item.id}")) {
+                                Text("Fork 新对话")
+                            }
                         }
                     }
                 }
@@ -226,7 +231,7 @@ private fun Chat(vm: WorkspaceViewModel) {
                             Text("草稿保存在此设备", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
                         }
                     }
-                    if (vm.showFork) OutlinedButton(onClick = vm::forkSession, enabled = vm.online && !vm.busy,
+                    if (vm.showFork) OutlinedButton(onClick = { vm.forkSession() }, enabled = vm.online && !vm.busy,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("fork-session")) { Text("Fork") }
                 }
             }

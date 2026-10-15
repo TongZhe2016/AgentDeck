@@ -264,6 +264,9 @@ internal class WorkspaceFixtureService(
     val histories = AtomicInteger()
     val updates = AtomicInteger()
     var liveTurns = JSONArray()
+    var historyTurns: JSONArray? = null
+    var forkedTurns: JSONArray? = null
+    var refuseFork = false
     val streams = AtomicInteger()
     var requestedFile: android.net.Uri? = null
     val fileBytes = ByteArray(1024 * 1024) { (it % 251).toByte() }
@@ -328,8 +331,8 @@ internal class WorkspaceFixtureService(
             return
         }
         if (length > 0) writes += path to JSONObject(String(body))
-        if ((path == "/v1/sessions/thread/resume" && refuseResume) || (path == "/v1/sessions/thread/settings" && refuseSettings)) {
-            val error = JSONObject().put("error", if (path.endsWith("/settings")) "设置暂时无法保存" else "此会话仍在运行").toString().toByteArray()
+        if ((path == "/v1/sessions/thread/resume" && refuseResume) || (path == "/v1/sessions/thread/settings" && refuseSettings) || (path == "/v1/sessions/thread/fork" && refuseFork)) {
+            val error = JSONObject().put("error", if (path.endsWith("/settings")) "设置暂时无法保存" else if (path.endsWith("/fork")) "分叉暂时失败" else "此会话仍在运行").toString().toByteArray()
             output.write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: ${error.size}\r\nConnection: close\r\n\r\n".toByteArray())
             output.write(error); output.flush(); return
         }
@@ -356,7 +359,7 @@ internal class WorkspaceFixtureService(
                 JSONObject().put("turns", liveTurns).put("liveCursor", "fixture-anchor").put("more", false)
             }
             path.startsWith("/v1/sessions/forked") -> JSONObject().put("id", "forked").put("cwd", "/fixture").put("managed", true)
-                .put("writerState", "owned").put("executionSettings", settings).put("turns", JSONArray(listOf(JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
+                .put("writerState", "owned").put("executionSettings", settings).put("turns", forkedTurns ?: JSONArray(listOf(JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             path == "/v1/sessions/thread/settings" -> {
                 check(managed)
                 settings = JSONObject(String(body))
@@ -374,7 +377,7 @@ internal class WorkspaceFixtureService(
             }
             path.startsWith("/v1/sessions/thread") -> {
                 histories.incrementAndGet()
-                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", managed).put("writerState", if (externalWriter) "external" else "available").put("executionSettings", settings).put("turns", JSONArray(listOf(
+                JSONObject().put("id", "thread").put("cwd", "/fixture").put("managed", managed).put("writerState", if (externalWriter) "external" else "available").put("executionSettings", settings).put("turns", historyTurns ?: JSONArray(listOf(
                     JSONObject().put("id", "turn").put("items", JSONArray(historyItems)))))
             }
             path.startsWith("/v1/sessions") -> {
