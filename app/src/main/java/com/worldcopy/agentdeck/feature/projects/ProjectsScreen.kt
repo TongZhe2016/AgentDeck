@@ -31,6 +31,7 @@ data class ProjectHostStatus(val loading: Boolean = false, val problem: String? 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewModel>, openWorkspace: (Host) -> Unit,
+                   openTools: (Host) -> Unit = {},
                    open: (ProjectGroup, JSONObject?) -> Unit) {
     val hosts = vm.hosts
     val connecting = vm.busy
@@ -111,6 +112,8 @@ fun ProjectsScreen(vm: HostsViewModel, workspaces: Map<String, WorkspaceViewMode
                 }
                 TextButton(onClick = { menuHost = null; openWorkspace(host) }, enabled = enabled,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("进入工作台") }
+                TextButton(onClick = { menuHost = null; openTools(host) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("SSH 终端、文件与安装") }
                 TextButton(onClick = { menuHost = null; vm.syncProjects(host) }, enabled = enabled && workspace?.online != true,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("连接") }
                 TextButton(onClick = { menuHost = null; vm.reconnect(host) }, enabled = enabled,

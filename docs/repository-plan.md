@@ -109,6 +109,8 @@ GitHub 模板已放入 `.github/`，建远端后即可使用。初期使用 issu
 
 首个可编译工程落地时同时加入 CI，使用该工程已经跑通的命令。Android 执行 debug 构建、单元测试和 lint；电脑服务执行类型检查、单元测试与构建。跨端协议改动使用双方消费的同一批样例验证。
 
+Android 的 `buildMobileAssets` 任务通过 `scripts/build-mobile-assets.mjs` 构建内置电脑服务包与 xterm.js 终端资源，构建机需要 Node.js 24+、npm 和 tar。终端依赖锁定在 `tools/mobile-assets/`；生成内容及 npm 缓存位于忽略的 `app/build/`。`feature/remote/` 使用独立 SSH 连接，不依赖电脑服务 API；安装器为 `scripts/mobile-bootstrap.sh` 和 `scripts/mobile-install.mjs`。现有仓库安装器继续维护电脑上的已有安装，手机入口用于新电脑的首次安装。
+
 物理手机负责 SSH 连通、配对安装、断线恢复、锁屏与通知等实机行为。CI 结果不能代替真机结果。验证记录写清版本、环境、操作、观察结果和未解决项；每次运行应能指出具体失败以及失败后将如何调整。
 
 阶段 0 完成前先用 debug APK 测试。首次发布前确定签名、电脑端安装方式和兼容组合；签名材料由发布环境保存。初期每次发布使用统一仓库版本标签，例如 `v0.1.0`，同时列出 APK、服务版本、协议版本及验证过的组合。

@@ -42,6 +42,11 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     private fun refresh() { hosts = store.hosts(); identities = store.identities() }
     fun dismissMessage() { message = null }
     fun dismissConfirmation() { confirmations = confirmations.drop(1) }
+    fun trustForTools(host: Host, key: HostKeyConfirmation) {
+        store.saveHost(host.copy(trustedHostKey = key.hostKey))
+        confirmations = confirmations.filterNot { it.first.id == host.id }
+        refresh()
+    }
     private fun requestConfirmation(host: Host, key: HostKeyConfirmation) {
         confirmations = confirmations.filterNot { it.first.id == host.id } + (host to key)
     }

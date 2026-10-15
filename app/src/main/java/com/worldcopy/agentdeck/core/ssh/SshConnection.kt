@@ -25,6 +25,30 @@ class SshConnection private constructor(private val client: SSHClient) : Closeab
     private var listener: ServerSocket? = null
     val connected: Boolean get() = client.isConnected && client.isAuthenticated
 
+    fun sftp() = client.newSFTPClient()
+
+    fun shell(cols: Int, rows: Int): net.schmizz.sshj.connection.channel.direct.Session.Shell {
+        val session = client.startSession()
+        try {
+            session.allocatePTY("xterm-256color", cols, rows, 0, 0, emptyMap())
+            return session.startShell()
+        } catch (e: Exception) { session.close(); throw e }
+    }
+
+    fun execute(command: String, output: (String) -> Unit): Int {
+        return client.startSession().use { session ->
+            // A PTY merges stderr and stdout, so long-running installers cannot block on an unread pipe.
+            session.allocatePTY("dumb", 120, 30, 0, 0, emptyMap())
+            val task = session.exec(command)
+            task.inputStream.reader(Charsets.UTF_8).use { reader ->
+                val chars = CharArray(4096)
+                while (true) { val count = reader.read(chars); if (count < 0) break; output(String(chars, 0, count)) }
+            }
+            task.join()
+            task.exitStatus ?: error("远程命令未返回退出状态，请检查电脑上的安装状态")
+        }
+    }
+
     fun forward(servicePort: Int): Int {
         val socket = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
         listener = socket

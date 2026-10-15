@@ -85,6 +85,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     val app = context.applicationContext as AgentDeckApplication
     val vm = app.hosts
     var workspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+    var toolsHostId by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var fromProjects by rememberSaveable { mutableStateOf(false) }
     var projectScope by rememberSaveable { mutableStateOf<String?>(null) }
@@ -140,8 +141,9 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
             if (workspace.connection == "服务未连接") workspace.openOffline(host.id)
         }
     }
-    HostIdentityDialog(vm)
+    if (toolsHostId == null) HostIdentityDialog(vm)
     LaunchedEffect(target) { target?.let { (host, thread) ->
+        toolsHostId = null
         workspaceId = host
         fromProjects = true
         projectScope = null
@@ -154,7 +156,7 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
     } }
     Box(Modifier.fillMaxSize()) {
         Scaffold(topBar = {
-            if (workspaceId == null) TopAppBar(title = {
+            if (workspaceId == null && toolsHostId == null) TopAppBar(title = {
                 if (tab != 0) Text(if (tab == 1) "密钥" else "待处理")
                 else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Surface(Modifier.size(36.dp), shape = MaterialTheme.shapes.small, color = DeckNavy) {
@@ -201,9 +203,20 @@ fun AgentDeckApp(target: Pair<String, String>? = null, consumeTarget: () -> Unit
             }
             if (selectedWorkspace?.selected == null) Text("请选择项目，再打开或新建会话。")
         }
-        if (workspaceId != null) WorkspaceScreen(app.workspace(workspaceId!!), fromProjects, projectScope) { workspaceId = null; if (fromProjects) tab = 0 }
+        if (toolsHostId != null) {
+            val host = vm.hosts.find { it.id == toolsHostId }
+            if (host != null) {
+                val remote: com.worldcopy.agentdeck.feature.remote.RemoteToolsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(key = "remote:${host.id}")
+                com.worldcopy.agentdeck.feature.remote.RemoteToolsScreen(remote, host, openWorkspace = {
+                    remote.close(); toolsHostId = null
+                    vm.syncProjects(host)
+                    projectScope = null; fromProjects = true; workspaceId = host.id
+                }, back = { toolsHostId = null })
+            }
+        }
+        else if (workspaceId != null) WorkspaceScreen(app.workspace(workspaceId!!), fromProjects, projectScope) { workspaceId = null; if (fromProjects) tab = 0 }
         else when (tab) {
-            0 -> ProjectsScreen(vm, app.workspaces, openWorkspace = { host ->
+            0 -> ProjectsScreen(vm, app.workspaces, openTools = { toolsHostId = it.id }, openWorkspace = { host ->
                 val workspace = app.workspace(host.id)
                 workspace.browseProject("")
                 projectScope = null

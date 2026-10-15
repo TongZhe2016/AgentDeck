@@ -4,9 +4,13 @@ Android 上的 SSH Agent 工作台：连接自己的电脑，操作 Codex，阅�
 
 当前已实现 Codex 首版工作台：跨主机项目首页、多主机、SSH 密码／生成或导入密钥登录、加密凭据、原生历史与正文搜索、新建／恢复会话、流式回复、审批／取消、断线事件恢复、后台通知、图片／分享和电脑端语音转文字。Git 支持 Changes、Diff、真实提交 DAG、分页和合并父提交选择。Graph 使用紧凑单行标题与相对时间，长标题省略，点击行内展开完整说明、引用和文件变更。
 
-Android 工程位于根目录，应用模块为 `app/`，application ID 为 `com.worldcopy.agentdeck`。在 Android Studio 中打开根目录，或用 `./gradlew :app:assembleDebug` 构建。电脑服务位于 `host-service/`，仅监听回环地址，经 SSH 隧道访问。
+Android 工程位于根目录，应用模块为 `app/`，application ID 为 `com.worldcopy.agentdeck`。在 Android Studio 中打开根目录，或用 `./gradlew :app:assembleDebug` 构建。构建机还需 Node.js 24+、npm 与 tar；Gradle 自动安装锁定的构建依赖，构建电脑服务与内置终端资源并打入 APK。生成内容位于 `app/build/`，不提交二进制安装包。电脑服务位于 `host-service/`，仅监听回环地址，经 SSH 隧道访问。
 
 模拟器到本机 Mac 的 SSH、真实 Codex API 文字／图片、审批／取消、断线恢复和后台通知已实测；详情见 [验证记录](docs/validation/codex-workbench.md)。开发配置以 Codex CLI 0.159.2、Node.js 24+ 为基准，手机不保存模型 API key。
+
+长按主机选择“SSH 终端、文件与安装”，可独立使用 SSH PTY 终端、SFTP 远程目录浏览与文件下载，无需预装电脑服务。终端支持彩色输出、交互程序、窗口缩放及 Ctrl-C／Esc／Tab／方向键；切换到文件页后再返回会重新附加原 Shell。点击普通文件，通过 Android 文件选择器指定下载位置，传输直接写入目标文件；取消或失败时目标文件可能不完整。离开 SSH 工具会关闭此工具连接，工作台使用的 SSH 隧道独立保持。
+
+新电脑只需启用 SSH 并准备好登录账号：添加主机后进入上述入口的“安装服务”，点“上传并安装”。APK 内置当前电脑服务压缩包，SFTP 上传后在 SSH 用户目录安装，注册 macOS LaunchAgent 或 Linux systemd 用户服务，并通过带令牌的健康请求确认启动；安装目录为 `~/.local/share/agentdeck/0.1.0`，服务端口和数据目录沿用该主机的高级设置。缺少 Node.js 24+ 或 Codex CLI 时会联网下载到同一用户目录，无需 sudo；已有可用运行时则复用。macOS 要求该账号已登录桌面，Ubuntu 要求可用的 systemd 用户服务；Linux 无人登录时持续运行还需启用 Linger。该入口用于首次安装，发现已有安装会报明原因并停止。Codex 账号登录／自定义 provider 配置仍在电脑端完成，可从终端执行 `codex login status` 等命令。安装日志直接显示在手机上；失败后可在终端查看用户服务日志。实现与验证见 [SSH 工具与手机安装](docs/validation/remote-tools.md)。
 
 ## 启动使用
 
@@ -55,3 +59,5 @@ Agent 的说明文字保持可见；执行活动默认显示为无边框的单�
 ## 许可证与上游复用
 
 项目许可证待仓库所有者决定。引入候选项目代码前，记录来源、采用的 commit、许可证与需保留的声明。确定后加入 `LICENSE`；首次实际复用第三方代码时加入相应归属说明。
+
+SSH 终端使用 [xterm.js](https://github.com/xtermjs/xterm.js) 的 npm 发布包 `@xterm/xterm` 6.0.0 与 `@xterm/addon-fit` 0.11.0（MIT），版本和包来源固定在 `tools/mobile-assets/package-lock.json`。上游许可随 APK 内的 `terminal/xterm-LICENSE` 和 `terminal/addon-fit-LICENSE` 分发。
